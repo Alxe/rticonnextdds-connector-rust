@@ -1,0 +1,182 @@
+<?xml-model href="https://community.rti.com/schema/7.3.0/rti_dds_profiles.xsd" type="application/xml" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<dds>
+    <configuration_variables>
+        <value>
+            <element>
+                <name>DOMAIN_ID</name>
+                <value>61</value>
+            </element>
+            <element>
+                <name>PARTITION_ID</name>
+                <value>TestPartition</value>
+            </element>
+        </value>
+    </configuration_variables>
+
+    <types>
+        <struct name="SimpleStruct">
+            <member name="long_field" key="true" type="long" />
+            <member name="double_field" type="double" />
+            <member name="boolean_field" type="boolean" />
+            <member name="string_field" stringMaxLength="1024" type="string" />
+            <member name="enum_field" type="nonBasic" nonBasicTypeName="TestEnum" />
+        </struct>
+
+        <struct name="OptionalStruct">
+            <member name="long_field" optional="true" type="long" />
+            <member name="double_field" optional="true" type="double" />
+            <member name="boolean_field" optional="true" type="boolean" />
+            <member name="string_field" optional="true" stringMaxLength="1024" type="string" />
+            <member name="enum_field" optional="true" type="nonBasic" nonBasicTypeName="TestEnum" />
+        </struct>
+
+        <struct name="ComplexStruct">
+            <member name="simple" key="true" type="nonBasic" nonBasicTypeName="SimpleStruct" />
+            <member name="optional" type="nonBasic" nonBasicTypeName="OptionalStruct" />
+            <member name="union" type="nonBasic" nonBasicTypeName="TestUnion" />
+            <member name="long_matrix" arrayDimensions="3,3" type="long" />
+            <member name="string_array" arrayDimensions="3" stringMaxLength="256" type="string" />
+            <member name="double_sequence" sequenceMaxLength="3" type="double" />
+        </struct>
+
+        <enum name="TestEnum">
+            <enumerator name="Red" />
+            <enumerator name="Green" />
+            <enumerator name="Blue" />
+        </enum>
+
+        <enum name="TestUnionKind">
+            <enumerator name="String" />
+            <enumerator name="Number" />
+            <enumerator name="Boolean" />
+        </enum>
+
+        <union name="TestUnion">
+            <discriminator type="nonBasic" nonBasicTypeName="TestUnionKind" />
+            <case>
+                <caseDiscriminator value="String" />
+                <member name="string" type="string" stringMaxLength="256" />
+            </case>
+            <case>
+                <caseDiscriminator value="Number" />
+                <member name="number" type="double" />
+            </case>
+            <case>
+                <caseDiscriminator value="Boolean" />
+                <member name="boolean" type="boolean" />
+            </case>
+        </union>
+    </types>
+
+    <qos_library name="TestQosLibrary">
+        <qos_profile name="TestProfile">
+            <datawriter_qos>
+                <history>
+                    <kind>KEEP_ALL_HISTORY_QOS</kind>
+                </history>
+                <reliability>
+                    <kind>RELIABLE_RELIABILITY_QOS</kind>
+                </reliability>
+            </datawriter_qos>
+            <datareader_qos>
+                <history>
+                    <kind>KEEP_ALL_HISTORY_QOS</kind>
+                </history>
+                <reliability>
+                    <kind>RELIABLE_RELIABILITY_QOS</kind>
+                </reliability>
+                <resource_limits>
+                    <max_samples>LENGTH_UNLIMITED</max_samples>
+                </resource_limits>
+            </datareader_qos>
+        </qos_profile>
+    </qos_library>
+
+    <domain_library name="TestDomainLibrary">
+        <domain name="TestDomain" domain_id="$(DOMAIN_ID)">
+            <register_type name="SimpleType" type_ref="SimpleStruct" />
+            <register_type name="ComplexType" type_ref="ComplexStruct" />
+
+            <topic name="SimpleTopic" register_type_ref="SimpleType" />
+            <topic name="ComplexTopic" register_type_ref="ComplexType" />
+        </domain>
+    </domain_library>
+
+    <domain_participant_library name="TestDomainParticipantLibrary">
+        <domain_participant name="SimpleParticipant" domain_ref="TestDomainLibrary::TestDomain">
+            <publisher name="TestPublisher">
+                <data_writer name="TestWriter" topic_ref="SimpleTopic">
+                    <datawriter_qos base_name="TestQosLibrary::TestProfile" />
+                </data_writer>
+            </publisher>
+            <subscriber name="TestSubscriber">
+                <data_reader name="TestReader" topic_ref="SimpleTopic">
+                    <datareader_qos base_name="TestQosLibrary::TestProfile" />
+                </data_reader>
+            </subscriber>
+
+            <domain_participant_qos>
+                <partition>
+                    <name>
+                        <element>SimpleParticipant-$(PARTITION_ID)</element>
+                    </name>
+                </partition>
+            </domain_participant_qos>
+        </domain_participant>
+
+        <domain_participant name="SimpleWriterParticipant"
+            domain_ref="TestDomainLibrary::TestDomain">
+            <publisher name="TestPublisher">
+                <data_writer name="TestWriter" topic_ref="SimpleTopic">
+                    <datawriter_qos base_name="TestQosLibrary::TestProfile" />
+                </data_writer>
+            </publisher>
+
+            <domain_participant_qos>
+                <partition>
+                    <name>
+                        <element>SimpleWriterParticipant-$(PARTITION_ID)</element>
+                    </name>
+                </partition>
+            </domain_participant_qos>
+        </domain_participant>
+
+        <domain_participant name="SimpleReaderParticipant"
+            domain_ref="TestDomainLibrary::TestDomain">
+            <subscriber name="TestSubscriber">
+                <data_reader name="TestReader" topic_ref="SimpleTopic">
+                    <datareader_qos base_name="TestQosLibrary::TestProfile" />
+                </data_reader>
+            </subscriber>
+
+            <domain_participant_qos>
+                <partition>
+                    <name>
+                        <element>ReaderParticipant-$(PARTITION_ID)</element>
+                    </name>
+                </partition>
+            </domain_participant_qos>
+        </domain_participant>
+
+        <domain_participant name="ComplexParticipant" domain_ref="TestDomainLibrary::TestDomain">
+            <publisher name="TestPublisher">
+                <data_writer name="TestWriter" topic_ref="ComplexTopic">
+                    <datawriter_qos base_name="TestQosLibrary::TestProfile" />
+                </data_writer>
+            </publisher>
+            <subscriber name="TestSubscriber">
+                <data_reader name="TestReader" topic_ref="ComplexTopic">
+                    <datareader_qos base_name="TestQosLibrary::TestProfile" />
+                </data_reader>
+            </subscriber>
+
+            <domain_participant_qos>
+                <partition>
+                    <name>
+                        <element>ComplexParticipant-$(PARTITION_ID)</element>
+                    </name>
+                </partition>
+            </domain_participant_qos>
+        </domain_participant>
+    </domain_participant_library>
+</dds>

@@ -1,0 +1,4 @@
+rust_versions:
+  # - "1.85" # Rust 2024 Edition
+  - "1.90"
+  # - "latest"

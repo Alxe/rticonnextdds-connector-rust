@@ -1,0 +1,10 @@
+# Docs: https://github.com/xd009642/tarpaulin?tab=readme-ov-file#config-file
+# Schema: https://github.com/xd009642/tarpaulin/blob/develop/tarpaulin.toml
+
+[default]
+target-dir = "target-tarpaulin"
+skip-clean = true
+
+[report]
+out = ["Html", "Json", "Xml"]
+output-dir = "tarpaulin-report"

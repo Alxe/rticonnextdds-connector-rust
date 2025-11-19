@@ -1,0 +1,54 @@
+[package]
+name = "rtiddsconnector"
+description = """RTI Connector for Rust"""
+repository = "https://github.com/rticommunity/rticonnextdds-connector-rs"
+version = "0.1.0"
+authors = [
+    "Andrea Sorbini <asorbini@rti.com>",
+    "Alejandro Núñez Pérez <alejnp@rti.com>",
+]
+publish = false
+license-file = "LICENSE.pdf"
+build = "build.rs"
+edition = "2024"
+
+include = [
+    "build.rs",
+    "Cargo.toml",
+    "docs/**",
+    "examples/**",
+    "LICENSE.pdf",
+    "README.md",
+    "snippets/**",
+    "src/**",
+    "tests/**",
+]
+
+exclude = [
+    "resources/**",
+    "rticonnextdds-connector/**",
+    "target*/**",
+]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }
+
+[build-dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+ureq = "3.1"
+zip = "5.1"
+
+[dev-dependencies]
+# std::assert_matches is still unstable
+assert_matches = "1.5"
+clap = { version = "4.5", features = ["derive"] }
+regex = "1.11"
+serde = { version = "*", features = ["derive"] }
+serde_json = "*"
+serde_repr = "*"
+
+[[example]]
+name = "snippets"
+path = "snippets/mod.rs"
