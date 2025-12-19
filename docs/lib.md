@@ -1,29 +1,38 @@
-# A simple DDS API for Rust
+# A simple DDS API for Rust (Experimental)
 
-The `rtiddsconnector` crate offers a lightweight interface to access DDS Domains
-from Rust, using [RTI Connext][rti-pro]'s C libraries and the
+The `rtiddsconnector` crate provides a lightweight interface with which to
+access DDS domains from Rust using [RTI Connext][rti-pro] C libraries and the
 simplified _RTI Connector_ API.
 
 The API offered by `rtiddsconnector` does **NOT** match the
-[standard DDS API][omg-dds], but it rather offers a simplified interface,
-which was developed for faster and easier integration in any programming
-language with access to native C code.
+[standard DDS API][omg-dds]. Rather, it offers a simplified interface  developed
+for faster and easier integration in any programming language with access to
+native C code.
 
-The [Github project page][gh-connector] contains more information about
-`rtiddsconnector`'s C interface, and bindings to other languages (such as Javascript).
-The most important characteristics of the _RTI Connector_ API are that:
+The [_RTI Connector_ Github project page][gh-connector] contains more information about
+`rtiddsconnector`'s C interface and bindings to other languages (such as
+Javascript). Following are the most important characteristics of
+the _RTI Connector_ API:
 
-* It is based on an external [XML configuration][omg-dds-xml] file which fully describes
-  the DDS DomainParticipant and its contained entities (Types, Topics,
-  DataReaders, DataWriters, etc.).
-* It is based on top of Dynamic Data, thus removing the need for
-  code generation steps typically required by DDS applications.
-* It features implicit memory management for data samples, thus simplifying
+* It is based on an external [XML configuration][omg-dds-xml] file that
+  fully describes the DDS _DomainParticipant_ and its contained entities
+  (_Types_, _Topics_, _DataReaders_, _DataWriters_, etc).
+* It is based on Dynamic Data, removing the need for code generation steps
+  typically required by DDS applications.
+* It features implicit memory management for data samples, simplifying
   the application code.
 * It features implicit data conversions between DDS primitive types and
   native types supported by the target programming language.
 
+> **IMPORTANT:**
+> _Connector for Rust_ is an experimental product; do not use it in production
+> systems. This release is an evaluation distribution; use it to explore using
+> _RTI Connext_ functionality into Rust applications. As an experimental RTI
+> product, we only offer support through the [RTI Community Forum][rti-community],
+> backed by RTI engineers who will answer your questions.
+
 [rti-pro]: https://www.rti.com/products/dds "RTI Connext Professional"
+[rti-community]: https://community.rti.com/ "RTI Community Forum"
 [omg-dds]: https://www.omg.org/spec/DDS/ "OMG DDS Specification"
 [omg-dds-xml]: https://www.omg.org/spec/DDS-XML/ "OMG DDS XML Specification"
 [gh-connector]: https://github.com/rticommunity/rticonnextdds-connector "RTI Connector on Github"
@@ -35,19 +44,19 @@ The `rtiddsconnector` crate exposes the _RTI Connector_ API through the followin
 * [`Connector`]: Represents a DDS _DomainParticipant_, and is used to create
   `Input` and `Output` objects for reading and writing data.
 * [`Input`]: Represents a DDS _DataReader_, and is used to read data samples
-  from DDS topics.
+  from DDS _Topics_.
 * [`Output`]: Represents a DDS _DataWriter_, and is used to write data samples
-  to DDS topics.
+  to DDS _Topics_.
 
 In addition to these main abstractions, the crate also exposes, among others, the following types:
 
 * [`Sample`]: A trait representing a data sample read from an `Input`.
 * [`SampleIterator`]: An iterator over valid samples read from an `Input`.
 * [`Instance`]: A struct representing a data sample to be written to an `Output`.
-* [`ConnectorError`]: A struct representing errors that can occur when using the Connector API.
+* [`ConnectorError`]: A struct representing errors that can occur when using the _Connector_ API.
 * [`ConnectorResult`]: A type alias for `Result<T, ConnectorError>`, used for error handling.
 * [`ConnectorFallible`]: A type alias for `Result<T, Box<dyn std::error::Error>>`, used for fallible operations.
-* [`GlobalsDropGuard`]: A struct that ensures proper cleanup of global resources used by the Connector API.
+* [`GlobalsDropGuard`]: A struct that ensures proper cleanup of global resources used by the _Connector_ API.
 
 ### Typed Data Support
 
@@ -60,7 +69,7 @@ See the documentation for [`Instance::serialize`] and [`Sample::deserialize`].
 
 ### Error Handling
 
-Because many operations in the Connector API can fail due to various reasons, most of them handled
+Because many operations in the _RTI Connector_ API can fail due to various reasons, most of them handled
 externally in the underlying C implementation, the `rtiddsconnector` crate provides
 the [`ConnectorError`] struct as an opaque representation of errors that can occur when using the API.
 
@@ -72,9 +81,9 @@ where `T` is the expected return type of the operation.
 
 The `rtiddsconnector` crate attempts to provide safe abstractions over the underlying
 C implementation, which is not thread-safe. This means that while the crate attempts to use
-Rust's safety guarantees, users must be careful when using multiple threads.
+Rust's safety guarantees, developers must be careful when using multiple threads.
 
-### Build time linking
+### Build-time linking
 
 Because `rtiddsconnector` is built on top of [RTI Connext][rti-pro] C libraries,
 applications using this crate must ensure that the required C libraries are
