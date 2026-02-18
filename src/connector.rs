@@ -84,7 +84,7 @@ impl From<&str> for SelectedValue {
 /// and writing DDS data, respectively.
 ///
 /// [`Connector::get_input`] and [`Connector::get_output`] are the main
-/// methods of this struct, allowing to acquire owned references to
+/// methods of this struct, allowing to acquire references to
 /// [`Input`] and [`Output`] objects for reading and writing DDS data.
 ///
 /// # Examples
@@ -175,46 +175,28 @@ impl Connector {
 
     /// Get an [`Input`] instance contained in this [`Connector`].
     ///
-    /// This is a thread-aware operation that enforces single-threaded ownership
-    /// of the underlying [`Input`]'s resources, the `DataReader`.
-    /// Thread-aware ownership of the [`Input`] is implemented by means of
-    /// [`Drop::drop`] on the returned [`Input`].
-    ///
-    /// An error will be returned if another thread already owns the named [`Input`],
-    /// or if named [`Input`] is not contained in the Connector.
+    /// An error will be returned if the named [`Input`] is not contained in
+    /// the Connector.
     pub fn get_input(&self, name: &str) -> ConnectorResult<Input<'_>> {
         Input::new(name, self)
     }
 
-    /// Get an [`Input`] instance contained in this [`Connector`], potentially
-    /// blocking until it becomes available.
-    ///
-    /// This is a thread-aware operation that enforces single-threaded ownership,
-    /// and the blocking counterpart of [`Connector::get_input`].
     #[deprecated = "Use `get_input` instead"]
+    #[allow(missing_docs)]
     pub fn take_input(&self, name: &str) -> ConnectorResult<Input<'_>> {
         self.get_input(name)
     }
 
     /// Get an [`Output`] instance contained in this [`Connector`].
     ///
-    /// This is a thread-aware operation that enforces single-threaded ownership
-    /// of the underlying [`Output`]'s resources, the `DataWriter`.
-    /// Thread-aware ownership of the [`Output`] is implemented by means of
-    /// [`Drop::drop`] on the returned [`Output`].
-    ///
-    /// An error will be returned if another thread already owns the named [`Output`],
-    /// or if named [`Output`] is not contained in the Connector.
+    /// An error will be returned if the named [`Output`] is not contained in
+    /// the Connector.
     pub fn get_output(&self, name: &str) -> ConnectorResult<Output<'_>> {
         Output::new(name, self)
     }
 
-    /// Get an [`Output`] instance contained in this [`Connector`], potentially
-    /// blocking until it becomes available.
-    ///
-    /// This is a thread-aware operation that enforces single-threaded ownership,
-    /// and the blocking counterpart of [`Connector::get_output`].
     #[deprecated = "Use `get_output` instead"]
+    #[allow(missing_docs)]
     pub fn take_output(&self, name: &str) -> ConnectorResult<Output<'_>> {
         self.get_output(name)
     }

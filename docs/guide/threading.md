@@ -1,17 +1,7 @@
-# Threading and ownership
+# Threading
 
 The underlying RTI Connector C API is not thread-safe. The Rust bindings provide
-synchronization around the native connector and enforce single-threaded
-ownership of `Input` and `Output` handles.
-
-## Ownership rules
-
-Use the following ownership rules:
-
-* `Connector::get_input` and `Connector::get_output` return exclusive handles.
-* If an entity is already owned by another thread, you will receive an error.
-* Use `Connector::take_input` and `Connector::take_output` to block until the
-  entity is free.
+synchronization around the native connector.
 
 ## Practical guidance about threading
 

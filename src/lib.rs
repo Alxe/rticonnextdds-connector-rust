@@ -28,6 +28,33 @@ mod input;
 mod output;
 mod result;
 
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn concurrency_traits() {
+        use crate::{Connector, Input, Instance, Output, Sample};
+
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+
+        assert_send::<Connector>();
+        assert_sync::<Connector>();
+
+        assert_send::<Input<'_>>();
+        assert_sync::<Input<'_>>();
+
+        assert_send::<Output<'_>>();
+        assert_sync::<Output<'_>>();
+
+        assert_send::<Sample<'_>>();
+        assert_sync::<Sample<'_>>();
+
+        assert_send::<Instance<'_>>();
+        assert_sync::<Instance<'_>>();
+    }
+}
+
 #[cfg(doc)]
 pub mod guide {
     #![doc = include_str!(concat!(
