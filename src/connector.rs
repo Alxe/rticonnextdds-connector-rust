@@ -14,7 +14,7 @@ use crate::{
 };
 use std::{
     collections::HashMap,
-    sync::{Condvar, Mutex, RwLock},
+    sync::{Condvar, Mutex},
 };
 
 /// A variant type that can hold a [number][selected_number],
@@ -98,8 +98,8 @@ pub struct Connector {
     /// The name of the configuration used to create this Connector.
     name: String,
 
-    /// The native connector instance, protected by a RwLock for thread-safe access.
-    native: RwLock<NativeConnector>,
+    /// The native connector instance, protected by a Mutex for thread-safe access.
+    native: Mutex<NativeConnector>,
 
     /// Thread-safe holders for Input entities.
     inputs: ThreadSafeEntityHolder<InputRecord>,
@@ -169,7 +169,7 @@ impl Connector {
 
         Ok(Connector {
             name: config_name.to_string(),
-            native: RwLock::new(native),
+            native: Mutex::new(native),
             inputs: ThreadSafeEntityHolder::new(),
             outputs: ThreadSafeEntityHolder::new(),
         })
@@ -193,7 +193,7 @@ impl Connector {
 
     /// Implementation of wait for data functionality.
     fn impl_wait_for_data(&self, timeout: Option<i32>) -> ConnectorFallible {
-        self.native_ref()?.wait_for_data(timeout)
+        self.native()?.wait_for_data(timeout)
     }
 
     /// Get an [`Input`] instance contained in this [`Connector`].
@@ -254,23 +254,11 @@ impl Connector {
         self.outputs.release_entity(name)
     }
 
-    /// Get immutable access to the [`NativeConnector`] (for read operations)
-    pub(crate) fn native_ref(
+    /// Get access to the [`NativeConnector`] through a lock guard.
+    pub(crate) fn native(
         &self,
-    ) -> ConnectorResult<std::sync::RwLockReadGuard<'_, NativeConnector>> {
-        self.native.read().map_err(|_| {
-            ErrorKind::lock_poisoned_error(
-                "Another thread panicked while holding the native connector lock",
-            )
-            .into()
-        })
-    }
-
-    /// Get mutable access to the [`NativeConnector`] (for write operations)
-    pub(crate) fn native_mut(
-        &self,
-    ) -> ConnectorResult<std::sync::RwLockWriteGuard<'_, NativeConnector>> {
-        self.native.write().map_err(|_| {
+    ) -> ConnectorResult<std::sync::MutexGuard<'_, NativeConnector>> {
+        self.native.lock().map_err(|_| {
             ErrorKind::lock_poisoned_error(
                 "Another thread panicked while holding the native connector lock",
             )
@@ -282,7 +270,7 @@ impl Connector {
 // Trait specializations for Input entities
 impl<'a> EntityHandler<Input<'a>, InputRecord> for &'a Connector {
     fn validate_name(&self, name: &str) -> ConnectorFallible {
-        self.native_ref()?.get_input(name).map(drop)
+        self.native()?.get_input(name).map(drop)
     }
 
     fn create_entity(&self, name: &str) -> Input<'a> {
@@ -297,7 +285,7 @@ impl<'a> EntityHandler<Input<'a>, InputRecord> for &'a Connector {
 // Trait specializations for Output entities
 impl<'a> EntityHandler<Output<'a>, OutputRecord> for &'a Connector {
     fn validate_name(&self, name: &str) -> ConnectorFallible {
-        self.native_ref()?.get_output(name).map(drop)
+        self.native()?.get_output(name).map(drop)
     }
 
     fn create_entity(&self, name: &str) -> Output<'a> {

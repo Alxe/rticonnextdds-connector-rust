@@ -33,17 +33,14 @@ impl std::fmt::Display for Instance<'_> {
 impl Instance<'_> {
     /// Clear a specific field of the underlying sample.
     pub fn clear(&mut self, field: &str) -> ConnectorFallible {
-        self.0
-            .parent
-            .native_mut()?
-            .clear_member(&self.0.name, field)
+        self.0.parent.native()?.clear_member(&self.0.name, field)
     }
 
     /// Set the entire instance from a JSON string.
     pub fn set_as_json(&mut self, json_value: &str) -> ConnectorFallible {
         self.0
             .parent
-            .native_mut()?
+            .native()?
             .set_json_instance(&self.0.name, json_value)
     }
 
@@ -51,7 +48,7 @@ impl Instance<'_> {
     pub fn set_value(&mut self, field: &str, value: SelectedValue) -> ConnectorFallible {
         self.0
             .parent
-            .native_mut()?
+            .native()?
             .set_into_samples(&self.0.name, field, value)
     }
 
@@ -59,7 +56,7 @@ impl Instance<'_> {
     pub fn set_number(&mut self, field: &str, value: f64) -> ConnectorFallible {
         self.0
             .parent
-            .native_mut()?
+            .native()?
             .set_number_into_samples(&self.0.name, field, value)
     }
 
@@ -67,7 +64,7 @@ impl Instance<'_> {
     pub fn set_boolean(&mut self, field: &str, value: bool) -> ConnectorFallible {
         self.0
             .parent
-            .native_mut()?
+            .native()?
             .set_boolean_into_samples(&self.0.name, field, value)
     }
 
@@ -75,7 +72,7 @@ impl Instance<'_> {
     pub fn set_string(&mut self, field: &str, value: &str) -> ConnectorFallible {
         self.0
             .parent
-            .native_mut()?
+            .native()?
             .set_string_into_samples(&self.0.name, field, value)
     }
 
@@ -116,7 +113,7 @@ impl Instance<'_> {
 
     /// Get the entire instance as a JSON string.
     pub(crate) fn get_as_json(&self) -> ConnectorResult<String> {
-        self.0.parent.native_ref()?.get_json_instance(&self.0.name)
+        self.0.parent.native()?.get_json_instance(&self.0.name)
     }
 }
 
@@ -259,12 +256,12 @@ impl<'a> Output<'a> {
 
     /// Clear all fields of the underlying sample.
     pub fn clear_members(&mut self) -> ConnectorFallible {
-        self.parent.native_mut()?.clear(&self.name)
+        self.parent.native()?.clear(&self.name)
     }
 
     /// Write the output sample using the underlying `DataWriter`.
     pub fn write(&mut self) -> ConnectorFallible {
-        self.parent.native_mut()?.write(&self.name)
+        self.parent.native()?.write(&self.name)
     }
 
     /// Write the output sample with specific parameters.
@@ -276,7 +273,7 @@ impl<'a> Output<'a> {
             })?;
 
         self.parent
-            .native_mut()?
+            .native()?
             .write_with_params(&self.name, &params_json)
     }
 
@@ -296,7 +293,7 @@ impl<'a> Output<'a> {
     /// Implementation of wait functionality.
     fn impl_wait(&self, timeout_ms: Option<i32>) -> ConnectorFallible {
         self.parent
-            .native_ref()?
+            .native()?
             .get_output(&self.name)?
             .wait_for_acknowledgments(timeout_ms)
     }
@@ -323,7 +320,7 @@ impl<'a> Output<'a> {
         timeout_ms: Option<i32>,
     ) -> ConnectorResult<i32> {
         self.parent
-            .native_ref()?
+            .native()?
             .get_output(&self.name)?
             .wait_for_matched_subscription(timeout_ms)
     }
@@ -331,7 +328,7 @@ impl<'a> Output<'a> {
     /// Display the matched subscriptions as a JSON string.
     pub fn display_matched_subscriptions(&self) -> ConnectorResult<String> {
         self.parent
-            .native_ref()?
+            .native()?
             .get_output(&self.name)?
             .get_matched_subscriptions()
     }
