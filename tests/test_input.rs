@@ -22,14 +22,14 @@ fn test_input_creation_and_display() {
     );
 
     assert_matches!(
-        connector.take_input("InvalidSubscriber::InvalidReader"),
+        connector.get_input("InvalidSubscriber::InvalidReader"),
         Err(e) if e.is_entity_not_found(),
         "Expected error when getting invalid Input"
     );
 
     // Test that we can get a valid Input, and we display its Debug representation
     let input = connector
-        .take_input("TestSubscriber::TestReader")
+        .get_input("TestSubscriber::TestReader")
         .expect("Failed to get valid Input");
 
     assert_eq!(
@@ -37,11 +37,11 @@ fn test_input_creation_and_display() {
         format!("{:?}", input),
     );
 
-    // Test that concurrent get fails
+    // Test that concurrent get succeeds
     assert_matches!(
         connector.get_input("TestSubscriber::TestReader"),
-        Err(_),
-        "get_input should fail on concurrent usage"
+        Ok(_),
+        "get_input should succeed on concurrent usage"
     );
 
     // Test that we can get a valid Input again after dropping

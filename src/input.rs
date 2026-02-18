@@ -264,18 +264,6 @@ impl<'a> IntoIterator for &'a Input<'a> {
     }
 }
 
-/// Ensures that the [`Input`] is freed to the parent [`Connector`]
-impl<'a> Drop for Input<'a> {
-    fn drop(&mut self) {
-        if let Err(e) = self.parent.release_input(&self.name) {
-            eprintln!(
-                "Warning: Failed to release Input '{}' on drop: {}",
-                self.name, e
-            );
-        }
-    }
-}
-
 /// Kinds of data acquisition for the [`Input`].
 enum ReadOrTake {
     /// Read samples without removing them from the underlying `DataReader`.
@@ -286,11 +274,17 @@ enum ReadOrTake {
 }
 
 impl<'a> Input<'a> {
-    pub(crate) fn new(name: &str, connector: &'a Connector) -> Input<'a> {
-        Input {
+    pub(crate) fn new(
+        name: &str,
+        connector: &'a Connector,
+    ) -> ConnectorResult<Input<'a>> {
+        // validate for existence
+        let _input = connector.native()?.get_input(name)?;
+
+        Ok(Input {
             name: name.to_string(),
             parent: connector,
-        }
+        })
     }
 
     /// Fill the [`Input`]'s received sample cache without

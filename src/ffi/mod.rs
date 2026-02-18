@@ -147,6 +147,10 @@ impl NativeOutput {
 /// Newtype wrappers for native Connector pointers
 pub struct NativeConnector(*const rtiddsconnector::ConnectorPtr);
 
+/// SAFETY: We allow [`Send`] for [`NativeConnector`] because it's safe to move
+/// the connector across threads.
+unsafe impl Send for NativeConnector {}
+
 impl Drop for NativeConnector {
     fn drop(&mut self) {
         if let Err(e) = self.delete() {

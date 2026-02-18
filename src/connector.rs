@@ -12,10 +12,7 @@ use crate::{
     ConnectorFallible, ConnectorResult, Input, Output, ffi::NativeConnector,
     result::ErrorKind,
 };
-use std::{
-    collections::HashMap,
-    sync::{Condvar, Mutex},
-};
+use std::sync::Mutex;
 
 /// A variant type that can hold a [number][selected_number],
 /// a [boolean][selected_boolean], or a [string][selected_string] value.
@@ -100,24 +97,6 @@ pub struct Connector {
 
     /// The native connector instance, protected by a Mutex for thread-safe access.
     native: Mutex<NativeConnector>,
-
-    /// Thread-safe holders for Input entities.
-    inputs: ThreadSafeEntityHolder<InputRecord>,
-
-    /// Thread-safe holders for Output entities.
-    outputs: ThreadSafeEntityHolder<OutputRecord>,
-}
-
-/// Unsafe marker traits for Connector; disables sharing between threads.
-#[allow(unsafe_code)]
-unsafe impl Sync for Connector {
-    /* Marker trait */
-}
-
-/// Unsafe marker traits for Connector; disables sharing between threads.
-#[allow(unsafe_code)]
-unsafe impl Send for Connector {
-    /* Marker trait */
 }
 
 /// Display implementation for Connector; displaying only the name.
@@ -170,8 +149,6 @@ impl Connector {
         Ok(Connector {
             name: config_name.to_string(),
             native: Mutex::new(native),
-            inputs: ThreadSafeEntityHolder::new(),
-            outputs: ThreadSafeEntityHolder::new(),
         })
     }
 
@@ -206,8 +183,7 @@ impl Connector {
     /// An error will be returned if another thread already owns the named [`Input`],
     /// or if named [`Input`] is not contained in the Connector.
     pub fn get_input(&self, name: &str) -> ConnectorResult<Input<'_>> {
-        self.inputs
-            .acquire_entity(name, &self, BlockingBehavior::NonBlocking)
+        Input::new(name, self)
     }
 
     /// Get an [`Input`] instance contained in this [`Connector`], potentially
@@ -215,14 +191,9 @@ impl Connector {
     ///
     /// This is a thread-aware operation that enforces single-threaded ownership,
     /// and the blocking counterpart of [`Connector::get_input`].
+    #[deprecated = "Use `get_input` instead"]
     pub fn take_input(&self, name: &str) -> ConnectorResult<Input<'_>> {
-        self.inputs
-            .acquire_entity(name, &self, BlockingBehavior::BlockForever)
-    }
-
-    /// Mark an [`Input`] as released, making it available to other threads.
-    pub(crate) fn release_input(&self, name: &str) -> ConnectorFallible {
-        self.inputs.release_entity(name)
+        self.get_input(name)
     }
 
     /// Get an [`Output`] instance contained in this [`Connector`].
@@ -235,8 +206,7 @@ impl Connector {
     /// An error will be returned if another thread already owns the named [`Output`],
     /// or if named [`Output`] is not contained in the Connector.
     pub fn get_output(&self, name: &str) -> ConnectorResult<Output<'_>> {
-        self.outputs
-            .acquire_entity(name, &self, BlockingBehavior::NonBlocking)
+        Output::new(name, self)
     }
 
     /// Get an [`Output`] instance contained in this [`Connector`], potentially
@@ -244,14 +214,9 @@ impl Connector {
     ///
     /// This is a thread-aware operation that enforces single-threaded ownership,
     /// and the blocking counterpart of [`Connector::get_output`].
+    #[deprecated = "Use `get_output` instead"]
     pub fn take_output(&self, name: &str) -> ConnectorResult<Output<'_>> {
-        self.outputs
-            .acquire_entity(name, &self, BlockingBehavior::BlockForever)
-    }
-
-    /// Mark an [`Output`] as released, making it available to other threads.
-    pub(crate) fn release_output(&self, name: &str) -> ConnectorFallible {
-        self.outputs.release_entity(name)
+        self.get_output(name)
     }
 
     /// Get access to the [`NativeConnector`] through a lock guard.
@@ -264,196 +229,5 @@ impl Connector {
             )
             .into()
         })
-    }
-}
-
-// Trait specializations for Input entities
-impl<'a> EntityHandler<Input<'a>, InputRecord> for &'a Connector {
-    fn validate_name(&self, name: &str) -> ConnectorFallible {
-        self.native()?.get_input(name).map(drop)
-    }
-
-    fn create_entity(&self, name: &str) -> Input<'a> {
-        Input::new(name, self)
-    }
-
-    fn create_record() -> InputRecord {
-        InputRecord
-    }
-}
-
-// Trait specializations for Output entities
-impl<'a> EntityHandler<Output<'a>, OutputRecord> for &'a Connector {
-    fn validate_name(&self, name: &str) -> ConnectorFallible {
-        self.native()?.get_output(name).map(drop)
-    }
-
-    fn create_entity(&self, name: &str) -> Output<'a> {
-        Output::new(name, self)
-    }
-
-    fn create_record() -> OutputRecord {
-        OutputRecord
-    }
-}
-
-/// Marker struct for Input ownership records
-#[derive(Debug)]
-struct InputRecord;
-
-/// Unsafe marker traits for InputRecord; disables sharing between threads.
-#[allow(unsafe_code)]
-unsafe impl Sync for InputRecord {}
-
-/// Unsafe marker traits for InputRecord; disables sharing between threads.
-#[allow(unsafe_code)]
-unsafe impl Send for InputRecord {}
-
-/// Marker struct for Output ownership records
-#[derive(Debug)]
-struct OutputRecord;
-
-/// Unsafe marker traits for OutputRecord; disables sharing between threads.
-#[allow(unsafe_code)]
-unsafe impl Sync for OutputRecord {}
-
-/// Unsafe marker traits for OutputRecord; disables sharing between threads.
-#[allow(unsafe_code)]
-unsafe impl Send for OutputRecord {}
-
-/// Trait for handling entity operations (validation, creation, and record management)
-trait EntityHandler<T, R> {
-    /// Validate that the given name corresponds to a valid entity
-    fn validate_name(&self, name: &str) -> ConnectorFallible;
-
-    /// Create a new entity with the given name
-    fn create_entity(&self, name: &str) -> T;
-
-    /// Create a record for tracking entity ownership
-    fn create_record() -> R;
-}
-
-/// Thread-safe holder for entities with blocking acquisition behavior
-#[derive(Debug)]
-struct ThreadSafeEntityHolder<R> {
-    /// Map of entity names to their ownership records
-    entities: Mutex<HashMap<String, R>>,
-
-    /// Condition variable for managing blocking behavior
-    queue: Condvar,
-}
-
-/// Blocking behavior configuration for entity acquisition
-#[derive(Debug, Clone)]
-enum BlockingBehavior {
-    /// Return immediately if entity is not available
-    NonBlocking,
-
-    /// Block indefinitely until entity becomes available
-    BlockForever,
-}
-
-impl<R> ThreadSafeEntityHolder<R> {
-    /// Create a new ThreadSafeEntityHolder
-    fn new() -> Self {
-        ThreadSafeEntityHolder {
-            entities: Mutex::new(HashMap::new()),
-            queue: Condvar::new(),
-        }
-    }
-
-    /// Helper function to create and register
-    fn get_entity_from_guard<T, H>(
-        &self,
-        name: &str,
-        entities: &mut HashMap<String, R>,
-        handler: &H,
-    ) -> ConnectorResult<T>
-    where
-        H: EntityHandler<T, R>,
-    {
-        if entities.contains_key(name) {
-            ErrorKind::entity_busy_error(format!(
-                "{} named '{}' already in use",
-                std::any::type_name::<T>(),
-                name,
-            ))
-            .into_err()
-        } else {
-            let entity = handler.create_entity(name);
-            let record = H::create_record();
-            entities.insert(name.to_string(), record);
-
-            Ok(entity)
-        }
-    }
-
-    /// Release an entity, making it available to other threads
-    fn release_entity(&self, name: &str) -> ConnectorFallible {
-        let mut entities = self.entities.lock().map_err(|_| {
-            ErrorKind::lock_poisoned_error(
-                "Another thread panicked while holding the entities lock",
-            )
-        })?;
-
-        match entities.remove(name) {
-            None => ErrorKind::entity_busy_error(format!(
-                "{} named '{}' not found or already released",
-                std::any::type_name::<R>(),
-                name,
-            ))
-            .into_err(),
-            Some(_) => {
-                self.queue.notify_all();
-                Ok(())
-            }
-        }
-    }
-
-    /// Retrieve an entity with configurable blocking behavior
-    fn acquire_entity<T, H>(
-        &self,
-        name: &str,
-        handler: &H,
-        behavior: BlockingBehavior,
-    ) -> ConnectorResult<T>
-    where
-        H: EntityHandler<T, R>,
-    {
-        let mut entities = self.entities.lock().map_err(|_| {
-            ErrorKind::lock_poisoned_error(
-                "Another thread panicked while holding the entities lock",
-            )
-        })?;
-
-        // Validate the name first
-        handler.validate_name(name)?;
-
-        loop {
-            // Try to acquire the entity
-            if !entities.contains_key(name) {
-                return self.get_entity_from_guard(name, &mut entities, handler);
-            }
-
-            // Entity is already taken, decide what to do based on blocking behavior
-            match &behavior {
-                BlockingBehavior::NonBlocking => {
-                    return ErrorKind::entity_busy_error(format!(
-                        "{} '{}' already in use",
-                        std::any::type_name::<T>(),
-                        name,
-                    ))
-                    .into_err();
-                }
-
-                BlockingBehavior::BlockForever => {
-                    entities = self.queue.wait(entities).map_err(|_| {
-                        ErrorKind::lock_poisoned_error(
-                            "Another thread panicked while holding the entities lock",
-                        )
-                    })?;
-                }
-            }
-        }
     }
 }

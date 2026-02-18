@@ -21,24 +21,24 @@ fn test_output_creation_and_display() -> ConnectorFallible {
     );
 
     assert_matches!(
-        connector.take_output("InvalidPublisher::InvalidWriter"),
+        connector.get_output("InvalidPublisher::InvalidWriter"),
         Err(e) if e.is_entity_not_found(),
         "Expected error when getting invalid Output"
     );
 
     // Test that we can get a valid Output, and we display its Debug representation
-    let output = connector.take_output("TestPublisher::TestWriter")?;
+    let output = connector.get_output("TestPublisher::TestWriter")?;
 
     assert_eq!(
         r#"Output { name: "TestPublisher::TestWriter", parent: Connector { name: "TestDomainParticipantLibrary::SimpleParticipant" } }"#,
         format!("{:?}", output),
     );
 
-    // Test that concurrent get fails
+    // Test that concurrent get succeeds
     assert_matches!(
         connector.get_output("TestPublisher::TestWriter"),
-        Err(_),
-        "get_output should fail on concurrent usage"
+        Ok(_),
+        "get_output should succeed on concurrent usage"
     );
 
     // Test that we can get a valid Output again after dropping

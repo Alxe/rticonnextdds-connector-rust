@@ -138,17 +138,6 @@ pub struct Output<'a> {
     pub(crate) parent: &'a Connector,
 }
 
-impl<'a> Drop for Output<'a> {
-    fn drop(&mut self) {
-        if let Err(e) = self.parent.release_output(&self.name) {
-            eprintln!(
-                "Warning: Failed to release Output '{}' on drop: {}",
-                self.name, e
-            );
-        }
-    }
-}
-
 /// Action to perform when writing a sample.
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -242,11 +231,17 @@ impl WriteParams {
 }
 
 impl<'a> Output<'a> {
-    pub(crate) fn new(name: &str, connector: &'a Connector) -> Output<'a> {
-        Output {
+    pub(crate) fn new(
+        name: &str,
+        connector: &'a Connector,
+    ) -> ConnectorResult<Output<'a>> {
+        // validate for existence
+        let _output = connector.native()?.get_output(name)?;
+
+        Ok(Output {
             name: name.to_string(),
             parent: connector,
-        }
+        })
     }
 
     /// Get an [`Instance`] of the data held by this [`Output`].
