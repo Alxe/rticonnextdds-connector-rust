@@ -39,7 +39,7 @@ pub fn main(
     tlog!("Started publisher...");
 
     let mut output = connector
-        .take_output(OUTPUT_NAME)
+        .get_output(OUTPUT_NAME)
         .map_err(|e| format!("Failed to take output: {}", e))?;
 
     loop {

@@ -37,7 +37,7 @@ pub fn main(
     tlog!("Started subscriber...");
 
     let mut input = connector
-        .take_input(INPUT_NAME)
+        .get_input(INPUT_NAME)
         .map_err(|e| format!("Failed to take input: {}", e))?;
 
     loop {
