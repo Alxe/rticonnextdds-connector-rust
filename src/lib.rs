@@ -41,11 +41,11 @@ mod tests {
         assert_send::<Connector>();
         assert_sync::<Connector>();
 
-        assert_send::<Input<'_>>();
-        assert_sync::<Input<'_>>();
+        assert_send::<Input>();
+        assert_sync::<Input>();
 
-        assert_send::<Output<'_>>();
-        assert_sync::<Output<'_>>();
+        assert_send::<Output>();
+        assert_sync::<Output>();
 
         assert_send::<Sample<'_>>();
         assert_sync::<Sample<'_>>();

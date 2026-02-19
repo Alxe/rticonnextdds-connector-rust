@@ -12,7 +12,7 @@ use crate::{
     ConnectorFallible, ConnectorResult, Input, Output, ffi::FfiConnector,
     result::ErrorKind,
 };
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// A variant type that can hold a [number][selected_number],
 /// a [boolean][selected_boolean], or a [string][selected_string] value.
@@ -91,18 +91,23 @@ impl From<&str> for SelectedValue {
 /// ```rust
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/snippets/connector/using_connector.rs"))]
 /// ```
-pub struct Connector {
+#[derive(Clone, Debug)]
+#[repr(transparent)]
+pub struct Connector(Arc<ConnectorInner>);
+
+pub(crate) struct ConnectorInner {
     /// The name of the configuration used to create this Connector.
-    name: String,
+    name: Arc<str>,
 
     /// The native connector instance, protected by a Mutex for thread-safe access.
-    native: Mutex<FfiConnector>,
+    native: Arc<Mutex<FfiConnector>>,
 }
 
-/// Display implementation for Connector; displaying only the name.
-impl std::fmt::Debug for Connector {
+impl std::fmt::Debug for ConnectorInner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, r#"Connector {{ name: "{}" }}"#, self.name)
+        f.debug_struct("Connector")
+            .field("name", &self.name)
+            .finish()
     }
 }
 
@@ -146,10 +151,10 @@ impl Connector {
             FfiConnector::new(config_name, config_file)?
         };
 
-        Ok(Connector {
-            name: config_name.to_string(),
-            native: Mutex::new(native),
-        })
+        Ok(Connector(Arc::new(ConnectorInner {
+            name: Arc::from(config_name),
+            native: Arc::new(Mutex::new(native)),
+        })))
     }
 
     /// Wait until data is available to read from any of its [`Input`], indefinitely.
@@ -170,20 +175,20 @@ impl Connector {
 
     /// Implementation of wait for data functionality.
     fn impl_wait_for_data(&self, timeout: Option<i32>) -> ConnectorFallible {
-        self.native()?.wait_for_data(timeout)
+        self.0.native()?.wait_for_data(timeout)
     }
 
     /// Get an [`Input`] instance contained in this [`Connector`].
     ///
     /// An error will be returned if the named [`Input`] is not contained in
     /// the Connector.
-    pub fn get_input(&self, name: &str) -> ConnectorResult<Input<'_>> {
-        Input::new(name, self)
+    pub fn get_input(&self, name: &str) -> ConnectorResult<Input> {
+        Input::new(name, &self.0)
     }
 
     #[deprecated = "Use `get_input` instead"]
     #[allow(missing_docs)]
-    pub fn take_input(&self, name: &str) -> ConnectorResult<Input<'_>> {
+    pub fn take_input(&self, name: &str) -> ConnectorResult<Input> {
         self.get_input(name)
     }
 
@@ -191,16 +196,18 @@ impl Connector {
     ///
     /// An error will be returned if the named [`Output`] is not contained in
     /// the Connector.
-    pub fn get_output(&self, name: &str) -> ConnectorResult<Output<'_>> {
-        Output::new(name, self)
+    pub fn get_output(&self, name: &str) -> ConnectorResult<Output> {
+        Output::new(name, &self.0)
     }
 
     #[deprecated = "Use `get_output` instead"]
     #[allow(missing_docs)]
-    pub fn take_output(&self, name: &str) -> ConnectorResult<Output<'_>> {
+    pub fn take_output(&self, name: &str) -> ConnectorResult<Output> {
         self.get_output(name)
     }
+}
 
+impl ConnectorInner {
     /// Get access to the [`FfiConnector`] through a lock guard.
     pub(crate) fn native(
         &self,

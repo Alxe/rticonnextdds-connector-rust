@@ -8,10 +8,15 @@
 
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/input.md"))]
 
+use std::sync::Arc;
+
 use crate::{
-    Connector, ConnectorFallible, ConnectorResult, SelectedValue,
+    ConnectorFallible, ConnectorResult, SelectedValue,
     result::{ErrorKind, InvalidErrorKind},
 };
+
+#[cfg(doc)]
+use crate::Connector;
 
 /// A wrapper which provides access to a single sample owned by an [`Input`].
 ///
@@ -39,7 +44,7 @@ pub struct Sample<'a> {
     index: usize,
 
     /// A reference to the parent [`Input`] object.
-    input: &'a Input<'a>,
+    input: &'a Input,
 }
 
 /// Display the [`Sample`] as a JSON string.
@@ -147,7 +152,7 @@ pub struct SampleIterator<'a> {
     samples_len: usize,
 
     /// A reference to the parent [`Input`] object.
-    input: &'a Input<'a>,
+    input: &'a Input,
 }
 
 /// Implements the core iteration logic for [`SampleIterator`].
@@ -236,17 +241,17 @@ impl<'a> Iterator for ValidSampleIterator<'a> {
 /// ```rust
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/snippets/input/using_input.rs"))]
 /// ```
-#[derive(Debug)]
-pub struct Input<'a> {
+#[derive(Debug, Clone)]
+pub struct Input {
     /// The name of the [`Input`] as known to the parent [`Connector`].
-    name: String,
+    name: Arc<str>,
 
     /// A reference to the parent [`Connector`] object.
-    parent: &'a Connector,
+    parent: Arc<crate::connector::ConnectorInner>,
 }
 
 /// Allows obtaining a [`SampleIterator`] from an [`Input`].
-impl<'a> IntoIterator for &'a Input<'a> {
+impl<'a> IntoIterator for &'a Input {
     type Item = Sample<'a>;
     type IntoIter = SampleIterator<'a>;
 
@@ -273,17 +278,17 @@ enum ReadOrTake {
     Take,
 }
 
-impl<'a> Input<'a> {
+impl Input {
     pub(crate) fn new(
         name: &str,
-        connector: &'a Connector,
-    ) -> ConnectorResult<Input<'a>> {
+        connector: &Arc<crate::connector::ConnectorInner>,
+    ) -> ConnectorResult<Input> {
         // validate for existence
         let _input = connector.native()?.get_input(name)?;
 
         Ok(Input {
-            name: name.to_string(),
-            parent: connector,
+            name: Arc::from(name),
+            parent: connector.clone(),
         })
     }
 

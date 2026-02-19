@@ -8,17 +8,22 @@
 
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/output.md"))]
 
+use std::sync::Arc;
+
 use crate::{
-    Connector, ConnectorFallible, ConnectorResult, SelectedValue,
+    ConnectorFallible, ConnectorResult, SelectedValue,
     result::{ErrorKind, InvalidErrorKind},
 };
+
+#[cfg(doc)]
+use crate::Connector;
 
 /// An interface to modify the data held by a given [`Output`] instance.
 ///
 /// ```rust
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/snippets/output/using_instance.rs"))]
 /// ```
-pub struct Instance<'a>(&'a Output<'a>);
+pub struct Instance<'a>(&'a Output);
 
 /// Display the [`Instance`] as a JSON string.
 impl std::fmt::Display for Instance<'_> {
@@ -129,13 +134,13 @@ impl Instance<'_> {
 /// ```rust
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/snippets/output/using_output.rs"))]
 /// ```
-#[derive(Debug)]
-pub struct Output<'a> {
+#[derive(Clone, Debug)]
+pub struct Output {
     /// The name of the output as known to the parent [`Connector`].
-    pub(crate) name: String,
+    pub(crate) name: Arc<str>,
 
     /// A reference to the parent [`Connector`].
-    pub(crate) parent: &'a Connector,
+    pub(crate) parent: Arc<crate::connector::ConnectorInner>,
 }
 
 /// Action to perform when writing a sample.
@@ -230,22 +235,22 @@ impl WriteParams {
     }
 }
 
-impl<'a> Output<'a> {
+impl Output {
     pub(crate) fn new(
         name: &str,
-        connector: &'a Connector,
-    ) -> ConnectorResult<Output<'a>> {
+        connector: &Arc<crate::connector::ConnectorInner>,
+    ) -> ConnectorResult<Output> {
         // validate for existence
         let _output = connector.native()?.get_output(name)?;
 
         Ok(Output {
-            name: name.to_string(),
-            parent: connector,
+            name: Arc::from(name),
+            parent: connector.clone(),
         })
     }
 
     /// Get an [`Instance`] of the data held by this [`Output`].
-    pub fn instance(&'a self) -> Instance<'a> {
+    pub fn instance<'a>(&'a self) -> Instance<'a> {
         Instance(self)
     }
 
