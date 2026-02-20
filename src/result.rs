@@ -29,6 +29,17 @@ impl ConnectorError {
         matches!(self.kind, ErrorKind::Timeout)
     }
 
+    /// Check if the error is a busy entity error
+    pub fn is_entity_busy(&self) -> bool {
+        matches!(
+            self.kind,
+            ErrorKind::Busy {
+                resource: BusyErrorKind::Entity,
+                ..
+            }
+        )
+    }
+
     /// Check if the error is a not found entity error
     pub fn is_entity_not_found(&self) -> bool {
         matches!(

@@ -17,7 +17,7 @@ use crate::{
 };
 
 #[cfg(doc)]
-use crate::Connector;
+use crate::{Connector, ConnectorError};
 
 /// A wrapper which provides access to a single sample owned by an [`Input`].
 ///
@@ -145,6 +145,15 @@ impl Sample<'_> {
 /// ```rust
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/snippets/input/using_sample_iterator.rs"))]
 /// ```
+///
+/// # Concurrent Access
+///
+/// Creating an iterator effectively "borrows" the sample cache. While any iterators
+/// exist (on this or any other [`Input`] handle to the same underlying reader),
+/// calling [`Input::read()`] or [`Input::take()`] will return an error that
+/// fulfills [`ConnectorError::is_entity_busy`].
+///
+/// The borrow is automatically released when the iterator is dropped.
 pub struct SampleIterator<'a> {
     /// The current index in the iteration.
     index: usize,
@@ -154,23 +163,27 @@ pub struct SampleIterator<'a> {
 
     /// A reference to the parent [`Input`] object.
     input: &'a Input,
+
+    /// Prevents concurrent modification of the sample cache while the iterator is active.
+    /// If `None`, the iterator is in an invalid state and will yield no samples.
+    input_guard: Option<std::sync::MutexGuard<'a, FfiInput>>,
 }
 
 /// Implements the core iteration logic for [`SampleIterator`].
 impl<'a> Iterator for SampleIterator<'a> {
     type Item = Sample<'a>;
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index < self.samples_len {
-            let result = Some(Self::Item {
-                index: self.index,
-                input: self.input,
-            });
-            self.index += 1;
-
-            result
-        } else {
-            None
+        if self.input_guard.is_none() || self.index >= self.samples_len {
+            return None;
         }
+
+        let result = Some(Self::Item {
+            index: self.index,
+            input: self.input,
+        });
+        self.index += 1;
+
+        result
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -247,7 +260,7 @@ pub struct Input {
     /// A reference to the parent [`Connector`] object.
     parent: Arc<crate::connector::ConnectorInner>,
 
-    ///
+    /// Shared state of the [`Input`] object.
     inner: Arc<InputInner>,
 }
 
@@ -274,15 +287,24 @@ impl<'a> IntoIterator for &'a Input {
     type IntoIter = SampleIterator<'a>;
 
     /// Create an `Iterator` over an `Input`'s samples cache.
-    /// Note that the iterator will not consume the `Input`, but it
-    /// will take an immutable borrow on it, preventing the
-    /// sample cache from being modified by calls to [`Input::take()`]
-    /// or [`Input::read()`].
+    ///
+    /// Acquires the native lock for the iterator's lifetime. If the lock is
+    /// poisoned (another thread panicked while holding it), the iterator is
+    /// created in an invalid state (with zero samples) rather than panicking.
     fn into_iter(self) -> Self::IntoIter {
-        SampleIterator {
-            index: 0,
-            samples_len: self.get_count().unwrap_or(0), // On error, assume 0 samples
-            input: self,
+        match self.inner.native.lock() {
+            Ok(guard) => SampleIterator {
+                index: 0,
+                samples_len: self.get_count().unwrap_or(0),
+                input: self,
+                input_guard: Some(guard),
+            },
+            Err(_) => SampleIterator {
+                index: 0,
+                samples_len: 0,
+                input: self,
+                input_guard: None,
+            },
         }
     }
 }
@@ -311,7 +333,7 @@ impl Input {
         })
     }
 
-    /// Reconstruct an Input from an already-tracked InputInner
+    /// Reconstruct an [`Input`] from an already-tracked InputInner
     pub(crate) fn from_inner(
         inner: Arc<InputInner>,
         connector: &Arc<crate::connector::ConnectorInner>,
@@ -322,10 +344,12 @@ impl Input {
         }
     }
 
+    /// Get access to the inner [`InputInner`] for advanced use cases.
     pub(crate) fn inner(&self) -> &Arc<InputInner> {
         &self.inner
     }
 
+    /// Get the name of the [`Input`] as known to the parent [`Connector`].
     pub(crate) fn name(&self) -> &str {
         &self.inner.name
     }
@@ -334,9 +358,11 @@ impl Input {
     /// emptying the underlying `DataReader`'s cache.
     /// This samples will be discard by the [`Input`] next time either
     /// [`Input::take()`] or [`Input::read()`] are called, but they will
-    /// still be available for accesse until they are pushed out of
+    /// still be available for access until they are pushed out of
     /// the `DataReader`'s cache for other reasons (i.e. Quality of
     /// Service parameters, such as History or Resource Limits).
+    ///
+    /// See [SampleIterator] for concurrency considerations when using this iterator.
     pub fn read(&mut self) -> ConnectorFallible {
         self.impl_read_or_take(ReadOrTake::Read)
     }
@@ -346,12 +372,16 @@ impl Input {
     /// This samples will be discard by the [`Input`] next time either
     /// [`Input::take()`] or [`Input::read()`] are called, and they
     /// will never be available for access again.
+    ///
+    /// See [SampleIterator] for concurrency considerations when using this iterator.
     pub fn take(&mut self) -> ConnectorFallible {
         self.impl_read_or_take(ReadOrTake::Take)
     }
 
     fn impl_read_or_take(&mut self, operation: ReadOrTake) -> ConnectorFallible {
         let result = {
+            // Protect against iterator invalidation
+            let _input_guard = self.inner.try_native()?;
             let native = self.parent.native()?;
             match operation {
                 ReadOrTake::Read => native.read(&self.name()),
@@ -371,6 +401,9 @@ impl Input {
     /// Return the loan on the samples previously taken
     /// from the underlying `DataReader`'s cache.
     pub fn return_loan(&mut self) -> ConnectorFallible {
+        // Protect against iterator invalidation
+        let _input_guard = self.inner.try_native()?;
+
         self.parent.native()?.return_loan(&self.name())
     }
 
@@ -503,6 +536,17 @@ impl InputInner {
         self.native.lock().map_err(|_| {
             ErrorKind::lock_poisoned_error(
                 "Another thread panicked while holding the native input lock",
+            )
+            .into()
+        })
+    }
+
+    pub(crate) fn try_native(
+        &self,
+    ) -> ConnectorResult<std::sync::MutexGuard<'_, FfiInput>> {
+        self.native.try_lock().map_err(|_| {
+            ErrorKind::entity_busy_error(
+                "Another operation is currently in progress on this Input",
             )
             .into()
         })

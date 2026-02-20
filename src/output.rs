@@ -140,6 +140,7 @@ pub struct Output {
     /// A reference to the parent [`Connector`].
     parent: Arc<crate::connector::ConnectorInner>,
 
+    /// Shared state of the [`Output`] object.
     inner: Arc<OutputInner>,
 }
 

@@ -97,6 +97,7 @@ impl From<&str> for SelectedValue {
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct Connector {
+    /// Shared state of the [`Connector`] object.
     inner: Arc<ConnectorInner>,
 }
 
