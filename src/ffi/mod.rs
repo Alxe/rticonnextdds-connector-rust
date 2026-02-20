@@ -72,6 +72,10 @@ pub struct FfiSample(NonNull<rtiddsconnector::OpaqueSample>);
 /// Newtype wrappers for native DataReader pointers
 pub struct FfiInput(NonNull<rtiddsconnector::OpaqueDataReader>);
 
+/// SAFETY: No restrictions on thread-locality, as long as the underlying
+/// Connector usage is synchronized externally
+unsafe impl Send for FfiInput {}
+
 impl FfiInput {
     pub fn wait_for_matched_publication(
         &self,
@@ -107,6 +111,10 @@ impl FfiInput {
 
 /// Newtype wrappers for native DataWriter pointers
 pub struct FfiOutput(NonNull<rtiddsconnector::OpaqueDataWriter>);
+
+/// SAFETY: No restrictions on thread-locality, as long as the underlying
+/// Connector usage is synchronized externally
+unsafe impl Send for FfiOutput {}
 
 impl FfiOutput {
     pub fn wait_for_matched_subscription(
@@ -147,8 +155,8 @@ impl FfiOutput {
 /// Newtype wrappers for native Connector pointers
 pub struct FfiConnector(NonNull<rtiddsconnector::OpaqueConnector>);
 
-/// SAFETY: We allow [`Send`] for [`FfiConnector`] because it's safe to move
-/// the connector across threads.
+/// SAFETY: No restrictions on thread-locality, as long as the underlying
+/// Connector usage is synchronized externally
 unsafe impl Send for FfiConnector {}
 
 impl Drop for FfiConnector {

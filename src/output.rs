@@ -8,10 +8,11 @@
 
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/output.md"))]
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::{
     ConnectorFallible, ConnectorResult, SelectedValue,
+    ffi::FfiOutput,
     result::{ErrorKind, InvalidErrorKind},
 };
 
@@ -38,7 +39,7 @@ impl std::fmt::Display for Instance<'_> {
 impl Instance<'_> {
     /// Clear a specific field of the underlying sample.
     pub fn clear(&mut self, field: &str) -> ConnectorFallible {
-        self.0.parent.native()?.clear_member(&self.0.name, field)
+        self.0.parent.native()?.clear_member(&self.0.name(), field)
     }
 
     /// Set the entire instance from a JSON string.
@@ -46,7 +47,7 @@ impl Instance<'_> {
         self.0
             .parent
             .native()?
-            .set_json_instance(&self.0.name, json_value)
+            .set_json_instance(&self.0.name(), json_value)
     }
 
     /// Set a specific field of the underlying sample.
@@ -54,7 +55,7 @@ impl Instance<'_> {
         self.0
             .parent
             .native()?
-            .set_into_samples(&self.0.name, field, value)
+            .set_into_samples(&self.0.name(), field, value)
     }
 
     /// Set a numeric field of the underlying sample.
@@ -62,7 +63,7 @@ impl Instance<'_> {
         self.0
             .parent
             .native()?
-            .set_number_into_samples(&self.0.name, field, value)
+            .set_number_into_samples(&self.0.name(), field, value)
     }
 
     /// Set a boolean field of the underlying sample.
@@ -70,7 +71,7 @@ impl Instance<'_> {
         self.0
             .parent
             .native()?
-            .set_boolean_into_samples(&self.0.name, field, value)
+            .set_boolean_into_samples(&self.0.name(), field, value)
     }
 
     /// Set a string field of the underlying sample.
@@ -78,7 +79,7 @@ impl Instance<'_> {
         self.0
             .parent
             .native()?
-            .set_string_into_samples(&self.0.name, field, value)
+            .set_string_into_samples(&self.0.name(), field, value)
     }
 
     /// Set the instance data from a typed struct using Serde serialization.
@@ -118,7 +119,7 @@ impl Instance<'_> {
 
     /// Get the entire instance as a JSON string.
     pub(crate) fn get_as_json(&self) -> ConnectorResult<String> {
-        self.0.parent.native()?.get_json_instance(&self.0.name)
+        self.0.parent.native()?.get_json_instance(&self.0.name())
     }
 }
 
@@ -134,13 +135,29 @@ impl Instance<'_> {
 /// ```rust
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/snippets/output/using_output.rs"))]
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Output {
-    /// The name of the output as known to the parent [`Connector`].
-    pub(crate) name: Arc<str>,
-
     /// A reference to the parent [`Connector`].
-    pub(crate) parent: Arc<crate::connector::ConnectorInner>,
+    parent: Arc<crate::connector::ConnectorInner>,
+
+    inner: Arc<OutputInner>,
+}
+
+impl std::fmt::Debug for Output {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Output")
+            .field("name", &self.name())
+            .field("parent", &self.parent)
+            .finish()
+    }
+}
+
+pub(crate) struct OutputInner {
+    /// The name of the output as known to the parent [`Connector`].
+    name: String,
+
+    /// Reference to the native Output entity, allowing per-entity locking.
+    native: Mutex<crate::ffi::FfiOutput>,
 }
 
 /// Action to perform when writing a sample.
@@ -238,15 +255,35 @@ impl WriteParams {
 impl Output {
     pub(crate) fn new(
         name: &str,
+        output: crate::ffi::FfiOutput,
         connector: &Arc<crate::connector::ConnectorInner>,
     ) -> ConnectorResult<Output> {
-        // validate for existence
-        let _output = connector.native()?.get_output(name)?;
-
         Ok(Output {
-            name: Arc::from(name),
             parent: connector.clone(),
+            inner: Arc::new(OutputInner {
+                name: name.to_string(),
+                native: Mutex::new(output),
+            }),
         })
+    }
+
+    /// Reconstruct an Output from an already-tracked OutputInner
+    pub(crate) fn from_inner(
+        inner: Arc<OutputInner>,
+        connector: &Arc<crate::connector::ConnectorInner>,
+    ) -> Output {
+        Output {
+            parent: connector.clone(),
+            inner,
+        }
+    }
+
+    pub(crate) fn inner(&self) -> &Arc<OutputInner> {
+        &self.inner
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        &self.inner.name
     }
 
     /// Get an [`Instance`] of the data held by this [`Output`].
@@ -256,12 +293,12 @@ impl Output {
 
     /// Clear all fields of the underlying sample.
     pub fn clear_members(&mut self) -> ConnectorFallible {
-        self.parent.native()?.clear(&self.name)
+        self.parent.native()?.clear(&self.name())
     }
 
     /// Write the output sample using the underlying `DataWriter`.
     pub fn write(&mut self) -> ConnectorFallible {
-        self.parent.native()?.write(&self.name)
+        self.parent.native()?.write(&self.name())
     }
 
     /// Write the output sample with specific parameters.
@@ -274,7 +311,7 @@ impl Output {
 
         self.parent
             .native()?
-            .write_with_params(&self.name, &params_json)
+            .write_with_params(&self.name(), &params_json)
     }
 
     /// Wait until all previously written samples have been acknowledged, indefinitely.
@@ -292,10 +329,7 @@ impl Output {
 
     /// Implementation of wait functionality.
     fn impl_wait(&self, timeout_ms: Option<i32>) -> ConnectorFallible {
-        self.parent
-            .native()?
-            .get_output(&self.name)?
-            .wait_for_acknowledgments(timeout_ms)
+        self.inner.native()?.wait_for_acknowledgments(timeout_ms)
     }
 
     /// Wait until a subscription is matched, indefinitely.
@@ -319,17 +353,25 @@ impl Output {
         &self,
         timeout_ms: Option<i32>,
     ) -> ConnectorResult<i32> {
-        self.parent
+        self.inner
             .native()?
-            .get_output(&self.name)?
             .wait_for_matched_subscription(timeout_ms)
     }
 
     /// Display the matched subscriptions as a JSON string.
     pub fn display_matched_subscriptions(&self) -> ConnectorResult<String> {
-        self.parent
-            .native()?
-            .get_output(&self.name)?
-            .get_matched_subscriptions()
+        self.inner.native()?.get_matched_subscriptions()
+    }
+}
+
+impl OutputInner {
+    /// Get access to the [`FfiOutput`] through a lock guard.
+    pub(crate) fn native(&self) -> ConnectorResult<std::sync::MutexGuard<'_, FfiOutput>> {
+        self.native.lock().map_err(|_| {
+            ErrorKind::lock_poisoned_error(
+                "Another thread panicked while holding the native input lock",
+            )
+            .into()
+        })
     }
 }

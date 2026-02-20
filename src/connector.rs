@@ -12,7 +12,10 @@ use crate::{
     ConnectorFallible, ConnectorResult, Input, Output, ffi::FfiConnector,
     result::ErrorKind,
 };
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex, Weak},
+};
 
 /// A variant type that can hold a [number][selected_number],
 /// a [boolean][selected_boolean], or a [string][selected_string] value.
@@ -91,16 +94,30 @@ impl From<&str> for SelectedValue {
 /// ```rust
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/snippets/connector/using_connector.rs"))]
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 #[repr(transparent)]
-pub struct Connector(Arc<ConnectorInner>);
+pub struct Connector {
+    inner: Arc<ConnectorInner>,
+}
+
+impl std::fmt::Debug for Connector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        ConnectorInner::fmt(self.inner.as_ref(), f)
+    }
+}
 
 pub(crate) struct ConnectorInner {
     /// The name of the configuration used to create this Connector.
-    name: Arc<str>,
+    name: String,
 
-    /// The native connector instance, protected by a Mutex for thread-safe access.
-    native: Arc<Mutex<FfiConnector>>,
+    /// The native connector instance.
+    native: Mutex<FfiConnector>,
+
+    /// Tracking cache for created Inputs with weak references
+    inputs: Mutex<HashMap<String, Weak<crate::input::InputInner>>>,
+
+    /// Tracking cache for created Outputs with weak references
+    outputs: Mutex<HashMap<String, Weak<crate::output::OutputInner>>>,
 }
 
 impl std::fmt::Debug for ConnectorInner {
@@ -151,10 +168,14 @@ impl Connector {
             FfiConnector::new(config_name, config_file)?
         };
 
-        Ok(Connector(Arc::new(ConnectorInner {
-            name: Arc::from(config_name),
-            native: Arc::new(Mutex::new(native)),
-        })))
+        Ok(Connector {
+            inner: Arc::new(ConnectorInner {
+                name: config_name.into(),
+                native: Mutex::new(native),
+                inputs: Mutex::new(HashMap::new()),
+                outputs: Mutex::new(HashMap::new()),
+            }),
+        })
     }
 
     /// Wait until data is available to read from any of its [`Input`], indefinitely.
@@ -175,7 +196,7 @@ impl Connector {
 
     /// Implementation of wait for data functionality.
     fn impl_wait_for_data(&self, timeout: Option<i32>) -> ConnectorFallible {
-        self.0.native()?.wait_for_data(timeout)
+        self.inner.native()?.wait_for_data(timeout)
     }
 
     /// Get an [`Input`] instance contained in this [`Connector`].
@@ -183,7 +204,30 @@ impl Connector {
     /// An error will be returned if the named [`Input`] is not contained in
     /// the Connector.
     pub fn get_input(&self, name: &str) -> ConnectorResult<Input> {
-        Input::new(name, &self.0)
+        let inner = &self.inner;
+
+        // First, check if we already have this input
+        let mut inputs = inner
+            .inputs
+            .lock()
+            .map_err(|_| ErrorKind::lock_poisoned_error("Input cache lock poisoned"))?;
+
+        // Try to upgrade existing weak reference
+        if let Some(weak) = inputs.get(name)
+            && let Some(input_inner) = weak.upgrade()
+        {
+            // Reconstruct Input from already-tracked InputInner
+            return Ok(Input::from_inner(input_inner, inner));
+        }
+
+        // Not tracked yet, get the native and create new Input
+        let native = inner.native()?.get_input(name)?;
+        let input = Input::new(name, native, inner)?;
+
+        // Store weak reference for future lookups
+        inputs.insert(name.to_string(), Arc::downgrade(input.inner()));
+
+        Ok(input)
     }
 
     #[deprecated = "Use `get_input` instead"]
@@ -197,7 +241,29 @@ impl Connector {
     /// An error will be returned if the named [`Output`] is not contained in
     /// the Connector.
     pub fn get_output(&self, name: &str) -> ConnectorResult<Output> {
-        Output::new(name, &self.0)
+        let inner = &self.inner;
+        // First, check if we already have this output
+        let mut outputs = inner
+            .outputs
+            .lock()
+            .map_err(|_| ErrorKind::lock_poisoned_error("Output cache lock poisoned"))?;
+
+        // Try to upgrade existing weak reference
+        if let Some(weak) = outputs.get(name)
+            && let Some(output_inner) = weak.upgrade()
+        {
+            // Reconstruct Output from already-tracked OutputInner
+            return Ok(Output::from_inner(output_inner, inner));
+        }
+
+        // Not tracked yet, get the native and create new Output
+        let native = inner.native()?.get_output(name)?;
+        let output = Output::new(name, native, inner)?;
+
+        // Store weak reference for future lookups
+        outputs.insert(name.to_string(), Arc::downgrade(output.inner()));
+
+        Ok(output)
     }
 
     #[deprecated = "Use `get_output` instead"]

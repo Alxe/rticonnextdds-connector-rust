@@ -8,10 +8,11 @@
 
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/input.md"))]
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::{
     ConnectorFallible, ConnectorResult, SelectedValue,
+    ffi::FfiInput,
     result::{ErrorKind, InvalidErrorKind},
 };
 
@@ -241,13 +242,30 @@ impl<'a> Iterator for ValidSampleIterator<'a> {
 /// ```rust
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/snippets/input/using_input.rs"))]
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Input {
-    /// The name of the [`Input`] as known to the parent [`Connector`].
-    name: Arc<str>,
-
     /// A reference to the parent [`Connector`] object.
     parent: Arc<crate::connector::ConnectorInner>,
+
+    ///
+    inner: Arc<InputInner>,
+}
+
+impl std::fmt::Debug for Input {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Input")
+            .field("name", &self.name())
+            .field("parent", &self.parent)
+            .finish()
+    }
+}
+
+pub(crate) struct InputInner {
+    /// The name of the [`Input`] as known to the parent [`Connector`].
+    name: String,
+
+    /// Reference to the native Input entity, allowing per-entity locking.
+    native: Mutex<crate::ffi::FfiInput>,
 }
 
 /// Allows obtaining a [`SampleIterator`] from an [`Input`].
@@ -281,15 +299,35 @@ enum ReadOrTake {
 impl Input {
     pub(crate) fn new(
         name: &str,
+        input: crate::ffi::FfiInput,
         connector: &Arc<crate::connector::ConnectorInner>,
     ) -> ConnectorResult<Input> {
-        // validate for existence
-        let _input = connector.native()?.get_input(name)?;
-
         Ok(Input {
-            name: Arc::from(name),
             parent: connector.clone(),
+            inner: Arc::new(InputInner {
+                name: name.to_string(),
+                native: Mutex::new(input),
+            }),
         })
+    }
+
+    /// Reconstruct an Input from an already-tracked InputInner
+    pub(crate) fn from_inner(
+        inner: Arc<InputInner>,
+        connector: &Arc<crate::connector::ConnectorInner>,
+    ) -> Input {
+        Input {
+            parent: connector.clone(),
+            inner,
+        }
+    }
+
+    pub(crate) fn inner(&self) -> &Arc<InputInner> {
+        &self.inner
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        &self.inner.name
     }
 
     /// Fill the [`Input`]'s received sample cache without
@@ -316,8 +354,8 @@ impl Input {
         let result = {
             let native = self.parent.native()?;
             match operation {
-                ReadOrTake::Read => native.read(&self.name),
-                ReadOrTake::Take => native.take(&self.name),
+                ReadOrTake::Read => native.read(&self.name()),
+                ReadOrTake::Take => native.take(&self.name()),
             }
         };
 
@@ -333,7 +371,7 @@ impl Input {
     /// Return the loan on the samples previously taken
     /// from the underlying `DataReader`'s cache.
     pub fn return_loan(&mut self) -> ConnectorFallible {
-        self.parent.native()?.return_loan(&self.name)
+        self.parent.native()?.return_loan(&self.name())
     }
 
     /// Wait indefinitely for data to be available on an `Input`.
@@ -351,10 +389,7 @@ impl Input {
     }
 
     fn impl_wait_for_data(&self, timeout_ms: Option<i32>) -> ConnectorFallible {
-        self.parent
-            .native()?
-            .get_input(&self.name)?
-            .wait_for_data(timeout_ms)
+        self.inner.native()?.wait_for_data(timeout_ms)
     }
 
     /// Wait indefinitely for a publication to be matched
@@ -378,9 +413,8 @@ impl Input {
         &self,
         timeout_ms: Option<i32>,
     ) -> ConnectorResult<i32> {
-        self.parent
+        self.inner
             .native()?
-            .get_input(&self.name)?
             .wait_for_matched_publication(timeout_ms)
     }
 
@@ -388,7 +422,7 @@ impl Input {
     fn get_count(&self) -> ConnectorResult<usize> {
         self.parent
             .native()?
-            .get_sample_count(&self.name)
+            .get_sample_count(&self.name())
             .map(|res| res as usize)
     }
 
@@ -396,21 +430,21 @@ impl Input {
     fn get_number(&self, index: usize, field_name: &str) -> ConnectorResult<f64> {
         self.parent
             .native()?
-            .get_number_from_sample(&self.name, index, field_name)
+            .get_number_from_sample(&self.name(), index, field_name)
     }
 
     /// Access a boolean field in a received sample.
     fn get_boolean(&self, index: usize, field_name: &str) -> ConnectorResult<bool> {
         self.parent
             .native()?
-            .get_boolean_from_sample(&self.name, index, field_name)
+            .get_boolean_from_sample(&self.name(), index, field_name)
     }
 
     /// Access a string field in a received sample.
     fn get_string(&self, index: usize, field_name: &str) -> ConnectorResult<String> {
         self.parent
             .native()?
-            .get_string_from_sample(&self.name, index, field_name)
+            .get_string_from_sample(&self.name(), index, field_name)
     }
 
     /// Access a variant-type field in a received sample.
@@ -421,47 +455,56 @@ impl Input {
     ) -> ConnectorResult<SelectedValue> {
         self.parent
             .native()?
-            .get_from_sample(&self.name, index, field_name)
+            .get_from_sample(&self.name(), index, field_name)
     }
 
     /// Access a field (as JSON) in a received sample.
     fn get_field_json(&self, index: usize, field_name: &str) -> ConnectorResult<String> {
         self.parent
             .native()?
-            .get_json_member(&self.name, index, field_name)
+            .get_json_member(&self.name(), index, field_name)
     }
 
     /// Access a variant-type field in a received sample's info.
     fn get_info(&self, index: usize, field_name: &str) -> ConnectorResult<SelectedValue> {
         self.parent
             .native()?
-            .get_from_info(&self.name, index, field_name)
+            .get_from_info(&self.name(), index, field_name)
     }
 
     /// Access a received sample's info field as JSON.
     fn get_info_json(&self, index: usize, field_name: &str) -> ConnectorResult<String> {
         self.parent
             .native()?
-            .get_json_from_infos(&self.name, index, field_name)
+            .get_json_from_infos(&self.name(), index, field_name)
     }
 
     /// Access a received sample as JSON string.
     fn get_json(&self, index: usize) -> ConnectorResult<String> {
-        self.parent.native()?.get_json_sample(&self.name, index)
+        self.parent.native()?.get_json_sample(&self.name(), index)
     }
 
     /// Check whether a received sample contains valid data.
     fn is_valid(&self, index: usize) -> ConnectorResult<bool> {
         self.parent
             .native()?
-            .get_boolean_from_infos(&self.name, index, "valid_data")
+            .get_boolean_from_infos(&self.name(), index, "valid_data")
     }
 
     /// Display the list of publications currently matched.
     pub fn display_matched_publications(&self) -> ConnectorResult<String> {
-        self.parent
-            .native()?
-            .get_input(&self.name)?
-            .get_matched_publications()
+        self.inner.native()?.get_matched_publications()
+    }
+}
+
+impl InputInner {
+    /// Get access to the [`FfiInput`] through a lock guard.
+    pub(crate) fn native(&self) -> ConnectorResult<std::sync::MutexGuard<'_, FfiInput>> {
+        self.native.lock().map_err(|_| {
+            ErrorKind::lock_poisoned_error(
+                "Another thread panicked while holding the native input lock",
+            )
+            .into()
+        })
     }
 }
