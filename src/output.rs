@@ -370,7 +370,7 @@ impl OutputInner {
     pub(crate) fn native(&self) -> ConnectorResult<std::sync::MutexGuard<'_, FfiOutput>> {
         self.native.lock().map_err(|_| {
             ErrorKind::lock_poisoned_error(
-                "Another thread panicked while holding the native input lock",
+                "Another thread panicked while holding the native output lock",
             )
             .into()
         })
