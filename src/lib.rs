@@ -34,24 +34,14 @@ mod tests {
     #[test]
     fn concurrency_traits() {
         use crate::{Connector, Input, Instance, Output, Sample};
+        use static_assertions::{assert_impl_all, assert_not_impl_any};
 
-        fn assert_send<T: Send>() {}
-        fn assert_sync<T: Sync>() {}
+        assert_impl_all!(Connector: Send, Sync);
+        assert_impl_all!(Input: Send, Sync);
+        assert_impl_all!(Output: Send, Sync);
 
-        assert_send::<Connector>();
-        assert_sync::<Connector>();
-
-        assert_send::<Input>();
-        assert_sync::<Input>();
-
-        assert_send::<Output>();
-        assert_sync::<Output>();
-
-        assert_send::<Sample<'_>>();
-        assert_sync::<Sample<'_>>();
-
-        assert_send::<Instance<'_>>();
-        assert_sync::<Instance<'_>>();
+        assert_not_impl_any!(Sample<'_>: Send, Sync);
+        assert_not_impl_any!(Instance<'_>: Send, Sync);
     }
 }
 

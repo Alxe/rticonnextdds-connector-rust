@@ -38,7 +38,7 @@ pub fn main(
 
     let mut input = connector
         .get_input(INPUT_NAME)
-        .map_err(|e| format!("Failed to take input: {}", e))?;
+        .map_err(|e| format!("Failed to get input: {}", e))?;
 
     loop {
         let wait_result = match discovery_duration {

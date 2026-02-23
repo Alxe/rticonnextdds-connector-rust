@@ -46,6 +46,9 @@ pub struct Sample<'a> {
 
     /// A reference to the parent [`Input`] object.
     input: &'a Input,
+
+    /// Bounds lifetime to the [`SampleIterator`] it was produced from.
+    _guard: std::marker::PhantomData<SampleIterator<'a>>,
 }
 
 /// Display the [`Sample`] as a JSON string.
@@ -180,6 +183,7 @@ impl<'a> Iterator for SampleIterator<'a> {
         let result = Some(Self::Item {
             index: self.index,
             input: self.input,
+            _guard: std::marker::PhantomData,
         });
         self.index += 1;
 
@@ -544,11 +548,19 @@ impl InputInner {
     pub(crate) fn try_native(
         &self,
     ) -> ConnectorResult<std::sync::MutexGuard<'_, FfiInput>> {
-        self.native.try_lock().map_err(|_| {
-            ErrorKind::entity_busy_error(
-                "Another operation is currently in progress on this Input",
-            )
-            .into()
+        self.native.try_lock().map_err(|e| match e {
+            std::sync::TryLockError::Poisoned(_) => {
+                ErrorKind::lock_poisoned_error(
+                    "Another thread panicked while holding the native input lock",
+                )
+                .into()
+            }
+            std::sync::TryLockError::WouldBlock => {
+                ErrorKind::entity_busy_error(
+                    "Another operation is currently in progress on this Input",
+                )
+                .into()
+            }
         })
     }
 }

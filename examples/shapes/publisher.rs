@@ -40,7 +40,7 @@ pub fn main(
 
     let mut output = connector
         .get_output(OUTPUT_NAME)
-        .map_err(|e| format!("Failed to take output: {}", e))?;
+        .map_err(|e| format!("Failed to get output: {}", e))?;
 
     loop {
         let wait_result = match discovery_duration {

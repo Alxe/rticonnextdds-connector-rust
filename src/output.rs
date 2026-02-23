@@ -24,7 +24,13 @@ use crate::Connector;
 /// ```rust
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/snippets/output/using_instance.rs"))]
 /// ```
-pub struct Instance<'a>(&'a Output);
+pub struct Instance<'a>(
+    &'a Output,
+    /// Implies `!Send + !Sync`: it is not safe to move or share
+    /// an `Instance` across threads because it mutates the `Output`'s
+    /// internal native state without any additional locking.
+    std::marker::PhantomData<*mut ()>,
+);
 
 /// Display the [`Instance`] as a JSON string.
 impl std::fmt::Display for Instance<'_> {
@@ -289,7 +295,7 @@ impl Output {
 
     /// Get an [`Instance`] of the data held by this [`Output`].
     pub fn instance<'a>(&'a self) -> Instance<'a> {
-        Instance(self)
+        Instance(self, std::marker::PhantomData)
     }
 
     /// Clear all fields of the underlying sample.

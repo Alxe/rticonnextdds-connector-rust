@@ -208,25 +208,39 @@ impl Connector {
         let inner = &self.inner;
 
         // First, check if we already have this input
-        let mut inputs = inner
-            .inputs
-            .lock()
-            .map_err(|_| ErrorKind::lock_poisoned_error("Input cache lock poisoned"))?;
-
-        // Try to upgrade existing weak reference
-        if let Some(weak) = inputs.get(name)
-            && let Some(input_inner) = weak.upgrade()
         {
-            // Reconstruct Input from already-tracked InputInner
-            return Ok(Input::from_inner(input_inner, inner));
-        }
+            let inputs = inner.inputs.lock().map_err(|_| {
+                ErrorKind::lock_poisoned_error("Input cache lock poisoned")
+            })?;
+
+            // Try to upgrade existing weak reference
+            if let Some(weak) = inputs.get(name)
+                && let Some(input_inner) = weak.upgrade()
+            {
+                // Reconstruct Input from already-tracked InputInner
+                return Ok(Input::from_inner(input_inner, inner));
+            }
+        } // inputs lock released before calling native
 
         // Not tracked yet, get the native and create new Input
         let native = inner.native()?.get_input(name)?;
         let input = Input::new(name, native, inner)?;
 
-        // Store weak reference for future lookups
-        inputs.insert(name.to_string(), Arc::downgrade(input.inner()));
+        // Re-acquire lock and double-check: another thread may have inserted
+        // the same input while we were calling native() above.
+        {
+            let mut inputs = inner.inputs.lock().map_err(|_| {
+                ErrorKind::lock_poisoned_error("Input cache lock poisoned")
+            })?;
+
+            if let Some(weak) = inputs.get(name)
+                && let Some(input_inner) = weak.upgrade()
+            {
+                return Ok(Input::from_inner(input_inner, inner));
+            }
+
+            inputs.insert(name.to_string(), Arc::downgrade(input.inner()));
+        }
 
         Ok(input)
     }
@@ -237,26 +251,41 @@ impl Connector {
     /// the Connector.
     pub fn get_output(&self, name: &str) -> ConnectorResult<Output> {
         let inner = &self.inner;
-        // First, check if we already have this output
-        let mut outputs = inner
-            .outputs
-            .lock()
-            .map_err(|_| ErrorKind::lock_poisoned_error("Output cache lock poisoned"))?;
 
-        // Try to upgrade existing weak reference
-        if let Some(weak) = outputs.get(name)
-            && let Some(output_inner) = weak.upgrade()
+        // First, check if we already have this output
         {
-            // Reconstruct Output from already-tracked OutputInner
-            return Ok(Output::from_inner(output_inner, inner));
-        }
+            let outputs = inner.outputs.lock().map_err(|_| {
+                ErrorKind::lock_poisoned_error("Output cache lock poisoned")
+            })?;
+
+            // Try to upgrade existing weak reference
+            if let Some(weak) = outputs.get(name)
+                && let Some(output_inner) = weak.upgrade()
+            {
+                // Reconstruct Output from already-tracked OutputInner
+                return Ok(Output::from_inner(output_inner, inner));
+            }
+        } // outputs lock released before calling native
 
         // Not tracked yet, get the native and create new Output
         let native = inner.native()?.get_output(name)?;
         let output = Output::new(name, native, inner)?;
 
-        // Store weak reference for future lookups
-        outputs.insert(name.to_string(), Arc::downgrade(output.inner()));
+        // Re-acquire lock and double-check: another thread may have inserted
+        // the same output while we were calling native() above.
+        {
+            let mut outputs = inner.outputs.lock().map_err(|_| {
+                ErrorKind::lock_poisoned_error("Output cache lock poisoned")
+            })?;
+
+            if let Some(weak) = outputs.get(name)
+                && let Some(output_inner) = weak.upgrade()
+            {
+                return Ok(Output::from_inner(output_inner, inner));
+            }
+
+            outputs.insert(name.to_string(), Arc::downgrade(output.inner()));
+        }
 
         Ok(output)
     }
