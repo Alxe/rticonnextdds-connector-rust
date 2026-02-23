@@ -231,12 +231,6 @@ impl Connector {
         Ok(input)
     }
 
-    #[deprecated = "Use `get_input` instead"]
-    #[allow(missing_docs)]
-    pub fn take_input(&self, name: &str) -> ConnectorResult<Input> {
-        self.get_input(name)
-    }
-
     /// Get an [`Output`] instance contained in this [`Connector`].
     ///
     /// An error will be returned if the named [`Output`] is not contained in
@@ -265,12 +259,6 @@ impl Connector {
         outputs.insert(name.to_string(), Arc::downgrade(output.inner()));
 
         Ok(output)
-    }
-
-    #[deprecated = "Use `get_output` instead"]
-    #[allow(missing_docs)]
-    pub fn take_output(&self, name: &str) -> ConnectorResult<Output> {
-        self.get_output(name)
     }
 }
 
