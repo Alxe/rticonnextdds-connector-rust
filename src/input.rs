@@ -46,9 +46,6 @@ pub struct Sample<'a> {
 
     /// A reference to the parent [`Input`] object.
     input: &'a Input,
-
-    /// Bounds lifetime to the [`SampleIterator`] it was produced from.
-    _guard: std::marker::PhantomData<SampleIterator<'a>>,
 }
 
 /// Display the [`Sample`] as a JSON string.
@@ -183,7 +180,6 @@ impl<'a> Iterator for SampleIterator<'a> {
         let result = Some(Self::Item {
             index: self.index,
             input: self.input,
-            _guard: std::marker::PhantomData,
         });
         self.index += 1;
 
