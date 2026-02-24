@@ -6,6 +6,31 @@ extern crate assert_matches;
 use rtiddsconnector::ConnectorFallible;
 use test_utils::TestContextBuilder;
 
+#[test]
+fn test_output_invalidating_instance_on_write() -> ConnectorFallible {
+    let context = TestContextBuilder::simple_output_only().build()?;
+    let connector = &context.connector;
+
+    let output = connector.get_output("TestPublisher::TestWriter")?;
+
+    let mut instance = output.instance();
+    instance.set_number("long_field", 42.0)?;
+
+    let mut output = output.clone();
+
+    // Write the instance, which should invalidate it
+    output.write()?;
+
+    // Now trying to use the instance again should result in an error
+    assert_matches!(
+        instance.set_string("string_field", "test"),
+        Err(e) if e.is_stale_resource(),
+        "Expected error when using instance after write"
+    );
+
+    Ok(())
+}
+
 //   it('Output object should not get instantiated for invalid DataWriter', function () {
 //   it('Output object should get instantiated for valid ' +
 #[test]

@@ -8,7 +8,7 @@
 
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/input.md"))]
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::AtomicUsize};
 
 use crate::{
     ConnectorFallible, ConnectorResult, SelectedValue,
@@ -46,6 +46,9 @@ pub struct Sample<'a> {
 
     /// A reference to the parent [`Input`] object.
     input: &'a Input,
+
+    /// The generation of the [`Sample`], used to detect staleness.
+    generation: usize,
 }
 
 /// Display the [`Sample`] as a JSON string.
@@ -59,44 +62,55 @@ impl std::fmt::Display for Sample<'_> {
 }
 
 impl Sample<'_> {
+    fn input(&self) -> ConnectorResult<&Input> {
+        if self.generation != self.input.generation() {
+            ErrorKind::stale_entity_error(
+                "Sample invalidated by Input::read or Input::take",
+            )
+            .into_err()
+        } else {
+            Ok(self.input)
+        }
+    }
+
     /// Returns whether the sample contains valid data.
     pub fn is_valid(&self) -> ConnectorResult<bool> {
-        self.input.is_valid(self.index)
+        self.input()?.is_valid(self.index)
     }
 
     /// Access a variant-type field in the sample's info.
     pub fn get_info(&self, field_name: &str) -> ConnectorResult<SelectedValue> {
-        self.input.get_info(self.index, field_name)
+        self.input()?.get_info(self.index, field_name)
     }
 
     /// Access a sample's info field as JSON.
     pub fn get_info_json(&self, field_name: &str) -> ConnectorResult<String> {
-        self.input.get_info_json(self.index, field_name)
+        self.input()?.get_info_json(self.index, field_name)
     }
 
     /// Access a boolean field in the sample.
     pub fn get_boolean(&self, field_name: &str) -> ConnectorResult<bool> {
-        self.input.get_boolean(self.index, field_name)
+        self.input()?.get_boolean(self.index, field_name)
     }
 
     /// Access a string field in the sample.
     pub fn get_string(&self, field_name: &str) -> ConnectorResult<String> {
-        self.input.get_string(self.index, field_name)
+        self.input()?.get_string(self.index, field_name)
     }
 
     /// Access a numeric field in the sample.
     pub fn get_number(&self, field_name: &str) -> ConnectorResult<f64> {
-        self.input.get_number(self.index, field_name)
+        self.input()?.get_number(self.index, field_name)
     }
 
     /// Access a variant-type field in the sample.
     pub fn get_value(&self, field_name: &str) -> ConnectorResult<SelectedValue> {
-        self.input.get_field(self.index, field_name)
+        self.input()?.get_field(self.index, field_name)
     }
 
     /// Access a field (as JSON) in the sample.
     pub fn get_value_json(&self, field_name: &str) -> ConnectorResult<String> {
-        self.input.get_field_json(self.index, field_name)
+        self.input()?.get_field_json(self.index, field_name)
     }
 
     /// Deserialize the sample into a concrete type using Serde.
@@ -136,7 +150,7 @@ impl Sample<'_> {
 
     /// Turn the sample into a JSON string.
     pub(crate) fn get_as_json(&self) -> ConnectorResult<String> {
-        self.input.get_json(self.index)
+        self.input()?.get_json(self.index)
     }
 }
 
@@ -180,6 +194,7 @@ impl<'a> Iterator for SampleIterator<'a> {
         let result = Some(Self::Item {
             index: self.index,
             input: self.input,
+            generation: self.input.generation(),
         });
         self.index += 1;
 
@@ -279,6 +294,9 @@ pub(crate) struct InputInner {
 
     /// Reference to the native Input entity, allowing per-entity locking.
     native: Mutex<crate::ffi::FfiInput>,
+
+    /// The generation of the samples, used to detect staleness.
+    generation_counter: AtomicUsize,
 }
 
 /// Allows obtaining a [`SampleIterator`] from an [`Input`].
@@ -329,6 +347,7 @@ impl Input {
             inner: Arc::new(InputInner {
                 name: name.to_string(),
                 native: Mutex::new(input),
+                generation_counter: AtomicUsize::new(0),
             }),
         })
     }
@@ -352,6 +371,13 @@ impl Input {
     /// Get the name of the [`Input`] as known to the parent [`Connector`].
     pub(crate) fn name(&self) -> &str {
         &self.inner.name
+    }
+
+    /// Get the generation of the [`Input`], used for staleness detection.
+    pub(crate) fn generation(&self) -> usize {
+        self.inner
+            .generation_counter
+            .load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// Fill the [`Input`]'s received sample cache without
@@ -394,6 +420,10 @@ impl Input {
         {
             Err(e)
         } else {
+            // Increment the generation to invalidate any existing samples and iterators.
+            self.inner
+                .generation_counter
+                .fetch_add(1, std::sync::atomic::Ordering::Release);
             Ok(())
         }
     }
@@ -545,18 +575,14 @@ impl InputInner {
         &self,
     ) -> ConnectorResult<std::sync::MutexGuard<'_, FfiInput>> {
         self.native.try_lock().map_err(|e| match e {
-            std::sync::TryLockError::Poisoned(_) => {
-                ErrorKind::lock_poisoned_error(
-                    "Another thread panicked while holding the native input lock",
-                )
-                .into()
-            }
-            std::sync::TryLockError::WouldBlock => {
-                ErrorKind::entity_busy_error(
-                    "Another operation is currently in progress on this Input",
-                )
-                .into()
-            }
+            std::sync::TryLockError::Poisoned(_) => ErrorKind::lock_poisoned_error(
+                "Another thread panicked while holding the native input lock",
+            )
+            .into(),
+            std::sync::TryLockError::WouldBlock => ErrorKind::entity_busy_error(
+                "Another operation is currently in progress on this Input",
+            )
+            .into(),
         })
     }
 }

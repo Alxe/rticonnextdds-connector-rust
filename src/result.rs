@@ -62,6 +62,17 @@ impl ConnectorError {
         )
     }
 
+    /// Check if the error is a stale resource error
+    pub fn is_stale_resource(&self) -> bool {
+        matches!(
+            self.kind,
+            ErrorKind::Invalid {
+                what: InvalidErrorKind::Resource,
+                ..
+            }
+        )
+    }
+
     /// Check if the error is a native error
     pub fn is_native_error(&self) -> bool {
         matches!(self.kind, ErrorKind::Native { .. })
@@ -157,6 +168,7 @@ impl std::fmt::Display for ConnectorError {
                     write!(f, "Invalid deserialization: {}", reason)
                 }
                 InvalidErrorKind::Assertion => write!(f, "Assertion failed: {}", reason),
+                InvalidErrorKind::Resource => write!(f, "Stale resource: {}", reason),
             },
 
             ErrorKind::Busy {
@@ -239,6 +251,8 @@ pub enum InvalidErrorKind {
     Deserialization,
     /// An assertion failed, this indicates a bug in the library
     Assertion,
+    /// A temporary resource is stale and needs to be reacquired
+    Resource,
 }
 
 /// What type of resource is busy
@@ -277,6 +291,13 @@ impl ErrorKind {
         Self::Invalid {
             what: InvalidErrorKind::Conversion,
             context: "string conversion failed".into(),
+        }
+    }
+
+    pub fn stale_entity_error(context: impl Into<String>) -> Self {
+        Self::Invalid {
+            what: InvalidErrorKind::Resource,
+            context: context.into(),
         }
     }
 
