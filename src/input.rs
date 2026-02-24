@@ -164,8 +164,8 @@ impl Sample<'_> {
 ///
 /// Creating an iterator effectively "borrows" the sample cache. While any iterators
 /// exist (on this or any other [`Input`] handle to the same underlying reader),
-/// calling [`Input::read()`] or [`Input::take()`] will return an error that
-/// fulfills [`ConnectorError::is_entity_busy`].
+/// calling [`Input::read()`], [`Input::take()`] or [`Input::return_loan()`] will
+/// return an error that fulfills [`ConnectorError::is_entity_busy`].
 ///
 /// The borrow is automatically released when the iterator is dropped.
 pub struct SampleIterator<'a> {
@@ -328,12 +328,15 @@ impl<'a> IntoIterator for &'a Input {
 }
 
 /// Kinds of data acquisition for the [`Input`].
-enum ReadOrTake {
+enum InputOperation {
     /// Read samples without removing them from the underlying `DataReader`.
     Read,
 
     /// Take samples and remove them from the underlying `DataReader`.
     Take,
+
+    /// Return the loan on previously taken samples.
+    Return,
 }
 
 impl Input {
@@ -388,9 +391,10 @@ impl Input {
     /// the `DataReader`'s cache for other reasons (i.e. Quality of
     /// Service parameters, such as History or Resource Limits).
     ///
-    /// See [SampleIterator] for concurrency considerations when using this iterator.
+    /// See [SampleIterator] for concurrency considerations on outstanding
+    /// iterators when calling this function.
     pub fn read(&mut self) -> ConnectorFallible {
-        self.impl_read_or_take(ReadOrTake::Read)
+        self.impl_input_operation(InputOperation::Read)
     }
 
     /// Fill the [`Input`]'s received sample cache by
@@ -399,19 +403,29 @@ impl Input {
     /// [`Input::take()`] or [`Input::read()`] are called, and they
     /// will never be available for access again.
     ///
-    /// See [SampleIterator] for concurrency considerations when using this iterator.
+    /// See [SampleIterator] for concurrency considerations on outstanding
+    /// iterators when calling this function.
     pub fn take(&mut self) -> ConnectorFallible {
-        self.impl_read_or_take(ReadOrTake::Take)
+        self.impl_input_operation(InputOperation::Take)
     }
 
-    fn impl_read_or_take(&mut self, operation: ReadOrTake) -> ConnectorFallible {
+    /// Return the loan on the samples previously taken
+    /// from the underlying `DataReader`'s cache.
+    ///
+    /// See [SampleIterator] for concurrency considerations on outstanding
+    /// iterators when calling this function.
+    pub fn return_loan(&mut self) -> ConnectorFallible {
+        self.impl_input_operation(InputOperation::Return)
+    }
+
+    fn impl_input_operation(&mut self, operation: InputOperation) -> ConnectorFallible {
+        let _input_guard = self.inner.try_native()?;
         let result = {
-            // Protect against iterator invalidation
-            let _input_guard = self.inner.try_native()?;
             let native = self.parent.native()?;
             match operation {
-                ReadOrTake::Read => native.read(&self.name()),
-                ReadOrTake::Take => native.take(&self.name()),
+                InputOperation::Read => native.read(&self.name()),
+                InputOperation::Take => native.take(&self.name()),
+                InputOperation::Return => native.return_loan(&self.name()),
             }
         };
 
@@ -426,15 +440,6 @@ impl Input {
                 .fetch_add(1, std::sync::atomic::Ordering::Release);
             Ok(())
         }
-    }
-
-    /// Return the loan on the samples previously taken
-    /// from the underlying `DataReader`'s cache.
-    pub fn return_loan(&mut self) -> ConnectorFallible {
-        // Protect against iterator invalidation
-        let _input_guard = self.inner.try_native()?;
-
-        self.parent.native()?.return_loan(&self.name())
     }
 
     /// Wait indefinitely for data to be available on an `Input`.
