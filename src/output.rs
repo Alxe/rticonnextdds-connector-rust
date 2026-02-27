@@ -152,7 +152,7 @@ impl std::fmt::Debug for Output {
     }
 }
 
-impl<'a> Drop for Output {
+impl Drop for Output {
     fn drop(&mut self) {
         if let Err(e) = self.parent.release_output(&self.name) {
             eprintln!(
