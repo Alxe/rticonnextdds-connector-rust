@@ -95,7 +95,6 @@ impl From<&str> for SelectedValue {
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/snippets/connector/using_connector.rs"))]
 /// ```
 #[derive(Clone)]
-#[repr(transparent)]
 pub struct Connector {
     /// Shared state of the [`Connector`] object.
     inner: Arc<ConnectorInner>,
@@ -299,7 +298,7 @@ impl EntityHandler<Output> for Connector {
     }
 }
 
-/// Trait for handling entity operations (validation, creation, and record management)
+/// Trait for handling entity operations (validation, creation)
 trait EntityHandler<T> {
     /// Validate that the given name corresponds to a valid entity
     fn validate_name(&self, name: &str) -> ConnectorFallible;
@@ -311,7 +310,7 @@ trait EntityHandler<T> {
 /// Acquire/Release holder for entities with blocking acquisition behavior
 #[derive(Debug)]
 struct AcquireReleaseHolder {
-    /// Map of entity names to their ownership records
+    /// Record of entity names which have exclusive ownership taken by some thread
     entities: Mutex<HashSet<String>>,
 
     /// Condition variable for managing blocking behavior

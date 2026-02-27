@@ -8,8 +8,6 @@
 
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/output.md"))]
 
-use std::sync::Arc;
-
 use crate::{
     ConnectorFallible, ConnectorResult, SelectedValue,
     result::{ErrorKind, InvalidErrorKind},
@@ -142,7 +140,7 @@ pub struct Output {
     native: crate::ffi::FfiOutput,
 
     /// A reference to the parent [`Connector`].
-    parent: Arc<crate::connector::ConnectorInner>,
+    parent: std::sync::Arc<crate::connector::ConnectorInner>,
 }
 
 impl std::fmt::Debug for Output {
@@ -260,7 +258,7 @@ impl WriteParams {
 impl Output {
     pub(crate) fn new(
         name: &str,
-        connector: &Arc<crate::connector::ConnectorInner>,
+        connector: &std::sync::Arc<crate::connector::ConnectorInner>,
     ) -> ConnectorResult<Output> {
         let native = connector.native()?.get_output(name)?;
 

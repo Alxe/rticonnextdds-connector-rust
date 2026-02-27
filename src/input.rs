@@ -8,8 +8,6 @@
 
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/input.md"))]
 
-use std::sync::Arc;
-
 use crate::{
     ConnectorFallible, ConnectorResult, SelectedValue,
     result::{ErrorKind, InvalidErrorKind},
@@ -45,8 +43,6 @@ pub struct Sample<'a> {
 
     /// A reference to the parent [`Input`] object.
     input: &'a Input,
-
-    _not_send_sync: crate::_NotSendSyncMarkerType,
 }
 
 /// Display the [`Sample`] as a JSON string.
@@ -165,7 +161,6 @@ impl<'a> Iterator for SampleIterator<'a> {
             let result = Some(Self::Item {
                 index: self.index,
                 input: self.input,
-                _not_send_sync: std::marker::PhantomData,
             });
             self.index += 1;
 
@@ -252,7 +247,7 @@ pub struct Input {
     native: crate::ffi::FfiInput,
 
     /// A reference to the parent [`Connector`] object.
-    parent: Arc<crate::connector::ConnectorInner>,
+    parent: std::sync::Arc<crate::connector::ConnectorInner>,
 }
 
 impl std::fmt::Debug for Input {
@@ -310,7 +305,7 @@ enum InputOperation {
 impl Input {
     pub(crate) fn new(
         name: &str,
-        connector: &Arc<crate::connector::ConnectorInner>,
+        connector: &std::sync::Arc<crate::connector::ConnectorInner>,
     ) -> ConnectorResult<Input> {
         let native = connector.native()?.get_input(name)?;
 

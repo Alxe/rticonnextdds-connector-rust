@@ -29,17 +29,6 @@ impl ConnectorError {
         matches!(self.kind, ErrorKind::Timeout)
     }
 
-    /// Check if the error is a busy entity error
-    pub fn is_entity_busy(&self) -> bool {
-        matches!(
-            self.kind,
-            ErrorKind::Busy {
-                resource: BusyErrorKind::Entity,
-                ..
-            }
-        )
-    }
-
     /// Check if the error is a not found entity error
     pub fn is_entity_not_found(&self) -> bool {
         matches!(
@@ -57,17 +46,6 @@ impl ConnectorError {
             self.kind,
             ErrorKind::NotFound {
                 what: NotFoundErrorKind::Field,
-                ..
-            }
-        )
-    }
-
-    /// Check if the error is a stale resource error
-    pub fn is_stale_resource(&self) -> bool {
-        matches!(
-            self.kind,
-            ErrorKind::Invalid {
-                what: InvalidErrorKind::Resource,
                 ..
             }
         )
@@ -168,7 +146,6 @@ impl std::fmt::Display for ConnectorError {
                     write!(f, "Invalid deserialization: {}", reason)
                 }
                 InvalidErrorKind::Assertion => write!(f, "Assertion failed: {}", reason),
-                InvalidErrorKind::Resource => write!(f, "Stale resource: {}", reason),
             },
 
             ErrorKind::Busy {
@@ -251,8 +228,6 @@ pub enum InvalidErrorKind {
     Deserialization,
     /// An assertion failed, this indicates a bug in the library
     Assertion,
-    /// A temporary resource is stale and needs to be reacquired
-    Resource,
 }
 
 /// What type of resource is busy
@@ -291,13 +266,6 @@ impl ErrorKind {
         Self::Invalid {
             what: InvalidErrorKind::Conversion,
             context: "string conversion failed".into(),
-        }
-    }
-
-    pub fn stale_entity_error(context: impl Into<String>) -> Self {
-        Self::Invalid {
-            what: InvalidErrorKind::Resource,
-            context: context.into(),
         }
     }
 

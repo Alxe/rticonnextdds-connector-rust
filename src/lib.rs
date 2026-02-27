@@ -22,9 +22,6 @@ pub use input::{Input, Sample, SampleIterator, ValidSampleIterator};
 pub use output::{Instance, Output, WriteParams, WriteParamsAction, WriteParamsIdentity};
 pub use result::{ConnectorError, ConnectorFallible, ConnectorResult};
 
-pub(crate) type _NotSendSyncMarkerType = std::marker::PhantomData<std::rc::Rc<()>>;
-pub(crate) type _NotSyncMarker = std::marker::PhantomData<std::cell::Cell<()>>;
-
 mod connector;
 mod ffi;
 mod input;
