@@ -8,59 +8,6 @@ use rtiddsconnector::SelectedValue;
 use test_utils::TEST_TIMEOUT;
 
 #[test]
-fn test_input_invalidating_sample_on_read() {
-    let mut context = test_utils::TestContextBuilder::simple()
-        .build()
-        .expect("Failed to create test context");
-    let input = {
-        let entities = context
-            .test_entities()
-            .expect("Error in test entities creation")
-            .ensure_discovery();
-        let mut output = entities
-            .output
-            .expect("This test expects an available output");
-        let mut input = entities
-            .input
-            .expect("This test expects an available input");
-
-        output.write().expect("Failed to write data");
-        input
-            .wait_with_timeout(TEST_TIMEOUT)
-            .expect("Failed to wait for data");
-        input.read().expect("Failed to read data");
-
-        input
-    };
-
-    let iter = input.into_iter().valid_only();
-    let (_, upper_hint) = iter.size_hint();
-    assert_eq!(
-        1,
-        upper_hint.expect("Our implementation always yields a upper hint"),
-        "Expected only one sample"
-    );
-
-    let sample = iter.take(1).next().expect("Expected a sample");
-
-    assert_matches!(
-        sample.get_value("long_field"),
-        Ok(SelectedValue::Number(0.0)),
-        "Expected to be able to access sample value after read"
-    );
-
-    let mut input = input.clone();
-
-    input.take().expect("Take operation failed");
-
-    assert_matches!(
-        sample.get_value("long_field"),
-        Err(e) if e.is_stale_resource(),
-        "Expected error when accessing sample value after take"
-    );
-}
-
-#[test]
 fn test_display_instance_and_sample() {
     let mut context = test_utils::TestContextBuilder::simple()
         .build()

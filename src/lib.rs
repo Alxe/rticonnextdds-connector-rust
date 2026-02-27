@@ -22,6 +22,9 @@ pub use input::{Input, Sample, SampleIterator, ValidSampleIterator};
 pub use output::{Instance, Output, WriteParams, WriteParamsAction, WriteParamsIdentity};
 pub use result::{ConnectorError, ConnectorFallible, ConnectorResult};
 
+pub(crate) type _NotSendSyncMarkerType = std::marker::PhantomData<std::rc::Rc<()>>;
+pub(crate) type _NotSyncMarker = std::marker::PhantomData<std::cell::Cell<()>>;
+
 mod connector;
 mod ffi;
 mod input;
@@ -34,13 +37,18 @@ mod tests {
     #[test]
     fn concurrency_traits() {
         use crate::{Connector, Input, Instance, Output, Sample};
-        use static_assertions::assert_impl_all;
+        use static_assertions::{assert_impl_all, assert_not_impl_any};
 
         assert_impl_all!(Connector: Send, Sync);
-        assert_impl_all!(Input: Send, Sync);
-        assert_impl_all!(Output: Send, Sync);
-        assert_impl_all!(Sample<'_>: Send, Sync);
-        assert_impl_all!(Instance<'_>: Send, Sync);
+
+        assert_impl_all!(Input: Send);
+        assert_impl_all!(Output: Send);
+
+        assert_not_impl_any!(Input: Sync);
+        assert_not_impl_any!(Output: Sync);
+
+        assert_not_impl_any!(Sample<'_>: Send, Sync);
+        assert_not_impl_any!(Instance<'_>: Send, Sync);
     }
 }
 

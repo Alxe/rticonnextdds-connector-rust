@@ -37,8 +37,8 @@ pub fn main(
     tlog!("Started subscriber...");
 
     let mut input = connector
-        .get_input(INPUT_NAME)
-        .map_err(|e| format!("Failed to get input: {}", e))?;
+        .take_input(INPUT_NAME)
+        .map_err(|e| format!("Failed to take input: {}", e))?;
 
     loop {
         let wait_result = match discovery_duration {

@@ -6,31 +6,6 @@ extern crate assert_matches;
 use rtiddsconnector::ConnectorFallible;
 use test_utils::TestContextBuilder;
 
-#[test]
-fn test_output_invalidating_instance_on_write() -> ConnectorFallible {
-    let context = TestContextBuilder::simple_output_only().build()?;
-    let connector = &context.connector;
-
-    let output = connector.get_output("TestPublisher::TestWriter")?;
-
-    let mut instance = output.instance();
-    instance.set_number("long_field", 42.0)?;
-
-    let mut output = output.clone();
-
-    // Write the instance, which should invalidate it
-    output.write()?;
-
-    // Now trying to use the instance again should result in an error
-    assert_matches!(
-        instance.set_string("string_field", "test"),
-        Err(e) if e.is_stale_resource(),
-        "Expected error when using instance after write"
-    );
-
-    Ok(())
-}
-
 //   it('Output object should not get instantiated for invalid DataWriter', function () {
 //   it('Output object should get instantiated for valid ' +
 #[test]
@@ -46,24 +21,24 @@ fn test_output_creation_and_display() -> ConnectorFallible {
     );
 
     assert_matches!(
-        connector.get_output("InvalidPublisher::InvalidWriter"),
+        connector.take_output("InvalidPublisher::InvalidWriter"),
         Err(e) if e.is_entity_not_found(),
         "Expected error when getting invalid Output"
     );
 
     // Test that we can get a valid Output, and we display its Debug representation
-    let output = connector.get_output("TestPublisher::TestWriter")?;
+    let output = connector.take_output("TestPublisher::TestWriter")?;
 
     assert_eq!(
         r#"Output { name: "TestPublisher::TestWriter", parent: Connector { name: "TestDomainParticipantLibrary::SimpleParticipant" } }"#,
         format!("{:?}", output),
     );
 
-    // Test that concurrent get succeeds
+    // Test that concurrent get fails
     assert_matches!(
         connector.get_output("TestPublisher::TestWriter"),
-        Ok(_),
-        "get_output should succeed on concurrent usage"
+        Err(_),
+        "get_output should fail on concurrent usage"
     );
 
     // Test that we can get a valid Output again after dropping

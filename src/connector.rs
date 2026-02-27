@@ -13,8 +13,8 @@ use crate::{
     result::ErrorKind,
 };
 use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex, Weak},
+    collections::HashSet,
+    sync::{Arc, Condvar, Mutex},
 };
 
 /// A variant type that can hold a [number][selected_number],
@@ -87,7 +87,7 @@ impl From<&str> for SelectedValue {
 /// and writing DDS data, respectively.
 ///
 /// [`Connector::get_input`] and [`Connector::get_output`] are the main
-/// methods of this struct, allowing to acquire references to
+/// methods of this struct, allowing to acquire owned references to
 /// [`Input`] and [`Output`] objects for reading and writing DDS data.
 ///
 /// # Examples
@@ -114,11 +114,11 @@ pub(crate) struct ConnectorInner {
     /// The native connector instance.
     native: Mutex<FfiConnector>,
 
-    /// Tracking cache for created Inputs with weak references
-    inputs: Mutex<HashMap<String, Weak<crate::input::InputInner>>>,
+    /// Acquire/release holders for Input entities.
+    inputs: AcquireReleaseHolder,
 
-    /// Tracking cache for created Outputs with weak references
-    outputs: Mutex<HashMap<String, Weak<crate::output::OutputInner>>>,
+    /// Acquire/release holders for Output entities.
+    outputs: AcquireReleaseHolder,
 }
 
 impl std::fmt::Debug for ConnectorInner {
@@ -173,8 +173,8 @@ impl Connector {
             inner: Arc::new(ConnectorInner {
                 name: config_name.into(),
                 native: Mutex::new(native),
-                inputs: Mutex::new(HashMap::new()),
-                outputs: Mutex::new(HashMap::new()),
+                inputs: AcquireReleaseHolder::new(),
+                outputs: AcquireReleaseHolder::new(),
             }),
         })
     }
@@ -202,92 +202,54 @@ impl Connector {
 
     /// Get an [`Input`] instance contained in this [`Connector`].
     ///
-    /// An error will be returned if the named [`Input`] is not contained in
-    /// the Connector.
+    /// This is a thread-aware operation that enforces single-threaded ownership
+    /// of the underlying [`Input`]'s resources, the `DataReader`.
+    /// Thread-aware ownership of the [`Input`] is implemented by means of
+    /// [`Drop::drop`] on the returned [`Input`].
+    ///
+    /// An error will be returned if another thread already owns the named [`Input`],
+    /// or if named [`Input`] is not contained in the Connector.
     pub fn get_input(&self, name: &str) -> ConnectorResult<Input> {
-        let inner = &self.inner;
+        self.inner
+            .inputs
+            .acquire_entity(name, self, BlockingBehavior::NonBlocking)
+    }
 
-        // First, check if we already have this input
-        {
-            let inputs = inner.inputs.lock().map_err(|_| {
-                ErrorKind::lock_poisoned_error("Input cache lock poisoned")
-            })?;
-
-            // Try to upgrade existing weak reference
-            if let Some(weak) = inputs.get(name)
-                && let Some(input_inner) = weak.upgrade()
-            {
-                // Reconstruct Input from already-tracked InputInner
-                return Ok(Input::from_inner(input_inner, inner));
-            }
-        } // inputs lock released before calling native
-
-        // Not tracked yet, get the native and create new Input
-        let native = inner.native()?.get_input(name)?;
-        let input = Input::new(name, native, inner)?;
-
-        // Re-acquire lock and double-check: another thread may have inserted
-        // the same input while we were calling native() above.
-        {
-            let mut inputs = inner.inputs.lock().map_err(|_| {
-                ErrorKind::lock_poisoned_error("Input cache lock poisoned")
-            })?;
-
-            if let Some(weak) = inputs.get(name)
-                && let Some(input_inner) = weak.upgrade()
-            {
-                return Ok(Input::from_inner(input_inner, inner));
-            }
-
-            inputs.insert(name.to_string(), Arc::downgrade(input.inner()));
-        }
-
-        Ok(input)
+    /// Get an [`Input`] instance contained in this [`Connector`], potentially
+    /// blocking until it becomes available.
+    ///
+    /// This is a thread-aware operation that enforces single-threaded ownership,
+    /// and the blocking counterpart of [`Connector::get_input`].
+    pub fn take_input(&self, name: &str) -> ConnectorResult<Input> {
+        self.inner
+            .inputs
+            .acquire_entity(name, self, BlockingBehavior::BlockForever)
     }
 
     /// Get an [`Output`] instance contained in this [`Connector`].
     ///
-    /// An error will be returned if the named [`Output`] is not contained in
-    /// the Connector.
+    /// This is a thread-aware operation that enforces single-threaded ownership
+    /// of the underlying [`Output`]'s resources, the `DataWriter`.
+    /// Thread-aware ownership of the [`Output`] is implemented by means of
+    /// [`Drop::drop`] on the returned [`Output`].
+    ///
+    /// An error will be returned if another thread already owns the named [`Output`],
+    /// or if named [`Output`] is not contained in the Connector.
     pub fn get_output(&self, name: &str) -> ConnectorResult<Output> {
-        let inner = &self.inner;
+        self.inner
+            .outputs
+            .acquire_entity(name, self, BlockingBehavior::NonBlocking)
+    }
 
-        // First, check if we already have this output
-        {
-            let outputs = inner.outputs.lock().map_err(|_| {
-                ErrorKind::lock_poisoned_error("Output cache lock poisoned")
-            })?;
-
-            // Try to upgrade existing weak reference
-            if let Some(weak) = outputs.get(name)
-                && let Some(output_inner) = weak.upgrade()
-            {
-                // Reconstruct Output from already-tracked OutputInner
-                return Ok(Output::from_inner(output_inner, inner));
-            }
-        } // outputs lock released before calling native
-
-        // Not tracked yet, get the native and create new Output
-        let native = inner.native()?.get_output(name)?;
-        let output = Output::new(name, native, inner)?;
-
-        // Re-acquire lock and double-check: another thread may have inserted
-        // the same output while we were calling native() above.
-        {
-            let mut outputs = inner.outputs.lock().map_err(|_| {
-                ErrorKind::lock_poisoned_error("Output cache lock poisoned")
-            })?;
-
-            if let Some(weak) = outputs.get(name)
-                && let Some(output_inner) = weak.upgrade()
-            {
-                return Ok(Output::from_inner(output_inner, inner));
-            }
-
-            outputs.insert(name.to_string(), Arc::downgrade(output.inner()));
-        }
-
-        Ok(output)
+    /// Get an [`Output`] instance contained in this [`Connector`], potentially
+    /// blocking until it becomes available.
+    ///
+    /// This is a thread-aware operation that enforces single-threaded ownership,
+    /// and the blocking counterpart of [`Connector::get_output`].
+    pub fn take_output(&self, name: &str) -> ConnectorResult<Output> {
+        self.inner
+            .outputs
+            .acquire_entity(name, self, BlockingBehavior::BlockForever)
     }
 }
 
@@ -302,5 +264,167 @@ impl ConnectorInner {
             )
             .into()
         })
+    }
+
+    /// Mark an [`Input`] as released, making it available to other threads.
+    pub(crate) fn release_input(&self, name: &str) -> ConnectorFallible {
+        self.inputs.release_entity(name)
+    }
+
+    /// Mark an [`Output`] as released, making it available to other threads.
+    pub(crate) fn release_output(&self, name: &str) -> ConnectorFallible {
+        self.outputs.release_entity(name)
+    }
+}
+
+// Trait specializations for Input entities
+impl EntityHandler<Input> for Connector {
+    fn validate_name(&self, name: &str) -> ConnectorFallible {
+        self.inner.native()?.get_input(name).map(drop)
+    }
+
+    fn create_entity(&self, name: &str) -> ConnectorResult<Input> {
+        Input::new(name, &self.inner)
+    }
+}
+
+// Trait specializations for Output entities
+impl EntityHandler<Output> for Connector {
+    fn validate_name(&self, name: &str) -> ConnectorFallible {
+        self.inner.native()?.get_output(name).map(drop)
+    }
+
+    fn create_entity(&self, name: &str) -> ConnectorResult<Output> {
+        Output::new(name, &self.inner)
+    }
+}
+
+/// Trait for handling entity operations (validation, creation, and record management)
+trait EntityHandler<T> {
+    /// Validate that the given name corresponds to a valid entity
+    fn validate_name(&self, name: &str) -> ConnectorFallible;
+
+    /// Create a new entity with the given name
+    fn create_entity(&self, name: &str) -> ConnectorResult<T>;
+}
+
+/// Acquire/Release holder for entities with blocking acquisition behavior
+#[derive(Debug)]
+struct AcquireReleaseHolder {
+    /// Map of entity names to their ownership records
+    entities: Mutex<HashSet<String>>,
+
+    /// Condition variable for managing blocking behavior
+    queue: Condvar,
+}
+
+/// Blocking behavior configuration for entity acquisition
+#[derive(Debug, Clone)]
+enum BlockingBehavior {
+    /// Return immediately if entity is not available
+    NonBlocking,
+
+    /// Block indefinitely until entity becomes available
+    BlockForever,
+}
+
+impl AcquireReleaseHolder {
+    /// Create a new ThreadSafeEntityHolder
+    fn new() -> Self {
+        AcquireReleaseHolder {
+            entities: Mutex::new(HashSet::new()),
+            queue: Condvar::new(),
+        }
+    }
+
+    /// Helper function to create and register
+    fn get_entity_from_guard<T, H>(
+        name: &str,
+        entities: &mut HashSet<String>,
+        handler: &H,
+    ) -> ConnectorResult<T>
+    where
+        H: EntityHandler<T>,
+    {
+        if entities.contains(name) {
+            ErrorKind::entity_busy_error(format!(
+                "{} named '{}' already in use",
+                std::any::type_name::<T>(),
+                name,
+            ))
+            .into_err()
+        } else {
+            let entity = handler.create_entity(name)?;
+            entities.insert(name.to_string());
+
+            Ok(entity)
+        }
+    }
+
+    /// Release an entity, making it available to other threads
+    fn release_entity(&self, name: &str) -> ConnectorFallible {
+        let mut entities = self.entities.lock().map_err(|_| {
+            ErrorKind::lock_poisoned_error(
+                "Another thread panicked while holding the entities lock",
+            )
+        })?;
+
+        if !entities.remove(name) {
+            ErrorKind::entity_busy_error(format!(
+                "Entity named '{}' not found or already released",
+                name,
+            ))
+            .into_err()
+        } else {
+            self.queue.notify_all();
+            Ok(())
+        }
+    }
+
+    /// Retrieve an entity with configurable blocking behavior
+    fn acquire_entity<T, H>(
+        &self,
+        name: &str,
+        handler: &H,
+        behavior: BlockingBehavior,
+    ) -> ConnectorResult<T>
+    where
+        H: EntityHandler<T>,
+    {
+        let mut entities = self.entities.lock().map_err(|_| {
+            ErrorKind::lock_poisoned_error(
+                "Another thread panicked while holding the entities lock",
+            )
+        })?;
+
+        // Validate the name first
+        handler.validate_name(name)?;
+
+        loop {
+            // Try to acquire the entity
+            if !entities.contains(name) {
+                return Self::get_entity_from_guard(name, &mut entities, handler);
+            }
+
+            // Entity is already taken, decide what to do based on blocking behavior
+            match &behavior {
+                BlockingBehavior::NonBlocking => {
+                    return ErrorKind::entity_busy_error(format!(
+                        "{} '{}' already in use",
+                        std::any::type_name::<T>(),
+                        name,
+                    ))
+                    .into_err();
+                }
+
+                BlockingBehavior::BlockForever => {
+                    entities = self.queue.wait(entities).map_err(|_| {
+                        ErrorKind::lock_poisoned_error(
+                            "Another thread panicked while holding the entities lock",
+                        )
+                    })?;
+                }
+            }
+        }
     }
 }
